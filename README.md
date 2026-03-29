@@ -25,7 +25,7 @@ FinMentor AI & ArthaScan solve this by converting static, messy PDFs into action
 ### Web Dashboard (FinMentor AI)
 
 1. **Upload** CAMS PDF (or use demo data).
-2. **AI Verdict screen** — Claude reads your portfolio and speaks findings probabilistically.
+2. **AI Verdict screen** — Vision LLMs read your portfolio and speak findings probabilistically.
 3. **Full Dashboard** — 4 tabs (X-Ray, FIRE Planner, Tax Wizard, Ask AI).
 
 ### Telegram Bot (ArthaScan)

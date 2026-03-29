@@ -36,3 +36,8 @@ By simply uploading a PDF into Telegram, ArthaScan's deterministic engine identi
 **ArthaScan finds the hidden 1% and returns ₹2.5 Lakhs directly to the user's retirement fund.** 
 
 *(Note: This does not even factor in the additional lakhs saved by the engine catching and consolidating >60% overlapping duplicate funds, which further eliminates redundant management fees).*
+
+---
+
+## 🛡️ Prototype & Mitigation Note
+This model's accuracy depends on the successful extraction of portfolio data by **Vision LLMs**. For the hackathon prototype, we utilize state-of-the-art cloud vision models. To mitigate privacy or cost concerns in a real-world deployment, the extraction layer can be swapped for localized vision models (e.g. LLaVA) or secure enterprise OCR solutions without changing the underlying mathematical impact engine.

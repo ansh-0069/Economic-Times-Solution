@@ -5,6 +5,7 @@ This document provides a high-level visual and structural breakdown of the Artha
 ## 1. Top-Down Visual Flow
 
 ```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'edgeLabelBackground':'transparent', 'tertiaryColor': '#fff', 'primaryTextColor': '#fff', 'edgeColor': '#fff', 'mainBkg': '#1e1e1e' }}}%%
 graph TD
     %% User Inputs
     User((User)) -->|Uploads PDF Statement\nvia Telegram| TBot[Telegram Bot Interface]
@@ -13,7 +14,7 @@ graph TD
     %% Extraction Pipeline (Multimodal + Fallbacks)
     subgraph Data Extraction Pipeline
         TBot -->|Sends PDF| ImageRasterizer[PyMuPDF Rasterizer]
-        ImageRasterizer -->|Sends 200 DPI PNGs| Vision[Gemini 2.5 Vision LLM]
+        ImageRasterizer -->|Sends 200 DPI PNGs| Vision[Vision LLM]
         Vision -->|Extracts raw JSON| Pydantic[Pydantic JSON Validator]
         
         Pydantic -- Invalid JSON --> Repair[Self-Healing LLM Loop]
@@ -53,7 +54,7 @@ graph TD
         PDFGen --> TBot
         
         Router -- Mathematical Query --> DeterministicResponse[Hardcoded Answer]
-        Router -- General Query --> GuardedLLM[Guarded Gemini Explainer]
+        Router -- General Query --> GuardedLLM[Guarded Vision LLM Explainer]
         Router -- Repeated Query --> Cache[(RAM Caching)]
         
         GuardedLLM -->|Translates to Hinglish/English| TBot
@@ -61,11 +62,11 @@ graph TD
         Cache --> TBot
     end
 
-    %% Theming
-    classDef llm fill:#bb86fc,stroke:#fff,stroke-width:2px,color:#000;
-    classDef logic fill:#03dac6,stroke:#fff,stroke-width:2px,color:#000;
-    classDef fail-safe fill:#cf6679,stroke:#fff,stroke-width:2px,color:#000;
-    classDef action fill:#ffb74d,stroke:#fff,stroke-width:2px,color:#000;
+    %% Theming (High Contrast for Dark/Light Mode)
+    classDef llm fill:#7E57C2,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef logic fill:#00897B,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef fail-safe fill:#D32F2F,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef action fill:#F57C00,stroke:#fff,stroke-width:2px,color:#fff;
     
     class Vision,Repair,GuardedLLM llm;
     class Metrics,XIRR,Overlap,Health,Rules logic;
@@ -85,9 +86,9 @@ graph TD
 
 ### Phase 1: Multimodal Data Extraction
 A major vulnerability of financial GenAI tools is that standard text-crawlers (like `PyPDF`) routinely mangle complex statement tables, leading to bad data before the analysis even begins. 
-ArthaScan solves this by avoiding text processing entirely. The **Image Rasterizer** utilizes `PyMuPDF` to convert the critical first two pages of the document into high-resolution 200 DPI images. These images are fed directly into the **Gemini 2.5 Flash Vision LLM**, which structurally "reads" the tabular data exactly like a human accountant. 
+ArthaScan solves this by avoiding text processing entirely. The **Image Rasterizer** utilizes `PyMuPDF` to convert the critical first two pages of the document into high-resolution 200 DPI images. These images are fed directly into the **Vision LLM**, which structurally "reads" the tabular data exactly like a human accountant. 
 
-To guarantee pipeline stability, the extracted text is forced through a strict **Pydantic Validation Loop**. If Gemini outputs malformed JSON, the script intercepts the failure and recursively prompts Gemini to repair its own syntax errors.
+To guarantee pipeline stability, the extracted text is forced through a strict **Pydantic Validation Loop**. If the LLM outputs malformed JSON, the script intercepts the failure and recursively prompts the model to repair its own syntax errors.
 
 ### Phase 2: The "Zero-Hallucination" Sandbox
 Large Language Models cannot do math reliably. Therefore, LLMs are permanently banned from performing financial computations in this architecture. 
@@ -102,6 +103,11 @@ The math engine passes aggregated financial truths into the **Rules Engine**. Th
 ### Phase 4: "Glass-Box" Presentation & Chat Guards
 Once the math is decided, we use LLMs strictly as a UI translation layer. 
 Instead of a rigid chatbot, users interact with an asynchronous **Intent Router**. If a user asks a definitive math question (*"What is my overlap?"*), the system bypasses AI entirely and returns the deterministic answer. 
-If the user asks a conversational question (*"Why is this fund bad?"*), the router injects the deterministic payload into a strict systemic prompt, commanding the **Guarded Gemini Explainer** to answer the question using *only* the provided math, effectively translating dry JSON into fluid conversational English or Hinglish without hallucinations. 
+If the user asks a conversational question (*"Why is this fund bad?"*), the router injects the deterministic payload into a strict systemic prompt, commanding the **Guarded Vision LLM Explainer** to answer the question using *only* the provided math, effectively translating dry JSON into fluid conversational English or Hinglish without hallucinations. 
 
 To ensure presentation-layer stability, all generated LLM responses are hashed and stored in an in-memory **RAM Cache**, resulting in 0ms latency for repeated user interactions during high-load demos.
+
+---
+
+## 🛡️ Mitigation & Infrastructure Note
+While this prototype highlights Vision LLMs for their reasoning capabilities, the architecture is designed to be **provider-independent**. To mitigate reliance on third-party cloud APIs, the extraction and explanation nodes can be substituted with locally-hosted models (e.g., LLaVA, GGUF-quantized models) ensuring offline capability and zero data leakage.

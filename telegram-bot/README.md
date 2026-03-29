@@ -10,10 +10,10 @@ Retail investors are flying blind, bleeding lakhs of rupees to overlapping funds
 
 ## 🔥 Key Features (Why this isn't just an LLM Wrapper)
 
-1. **Multimodal "Vision-First" Extraction Pipeline:** Standard PyPDF crawlers break on financial tables. We rasterize the PDF into high-res images and pass them to **Gemini 2.5 Flash** with a strict `Pydantic`-validated schema. If the LLM breaks, a self-healing retry loop and regex parser catch it.
+1. **Multimodal "Vision-First" Extraction Pipeline:** Standard PyPDF crawlers break on financial tables. We rasterize the PDF into high-res images and pass them to **Vision LLMs** with a strict `Pydantic`-validated schema. If the LLM breaks, a self-healing retry loop and regex parser catch it.
 2. **Deterministic Mathematical Engine:** LLMs hallucinate numbers. We don't allow them to do math. A strict Python algorithms engine calculates the true **XIRR (via XNPV)**, 10-year Wealth Bleed, and exactly normalizes stock exposure to reveal hidden overlaps.
 3. **0-100 Portfolio Health Score:** A custom algorithmic gauge that deducts penalties for closet indexing and high fee drag, giving users instant visual feedback on their portfolio's health.
-4. **"Glass-Box" Conversational Guard:** Users can freely chat with the bot to ask questions (e.g., *"Why is this fund bad?"*). An intent router intercepts the chat, prevents illegal financial advice/hallucinations, and uses Gemini to explain the deterministic calculations clearly in English or Hinglish.
+4. **"Glass-Box" Conversational Guard:** Users can freely chat with the bot to ask questions (e.g., *"Why is this fund bad?"*). An intent router intercepts the chat, prevents illegal financial advice/hallucinations, and uses Vision LLMs to explain the deterministic calculations clearly in English or Hinglish.
 5. **In-Memory Caching:** Explanatory LLM queries are hash-cached in-memory for 0ms latency responses upon repeat clicks.
 6. **Dynamic PDF Reporting:** Uses `ReportLab` to instantly generate and send a formatted PDF, complete with a Fund-by-Fund Action Breakdown table.
 
@@ -21,7 +21,7 @@ Retail investors are flying blind, bleeding lakhs of rupees to overlapping funds
 
 ## 🏗️ Architecture Flow
 
-`PDF Upload -> PyMuPDF Image Rasterization -> Gemini Vision Extraction -> Deterministic Finance Engine -> Decision Rules Engine -> Guarded AI Routing -> Telegram Bot Delivery`
+`PDF Upload -> PyMuPDF Image Rasterization -> Vision LLM Extraction -> Deterministic Finance Engine -> Decision Rules Engine -> Guarded AI Routing -> Telegram Bot Delivery`
 
 ## ⚙️ Local Setup
 
@@ -53,3 +53,8 @@ The system is built to never crash live. If extraction times out (due to API rat
 - **Overlap:** `65%`
 - **Expense ratio:** `1.5%`
 - **Wealth bleed (10 yrs):** `₹3,20,000`
+
+---
+
+## 🛡️ Prototype Note
+This solution currently leverages high-performance Vision LLMs for the hackathon demo. In a production scenario, these can be replaced with on-premise models (e.g., LLaVA) or specialized OCR engines to ensure data residency and cost-optimization.
