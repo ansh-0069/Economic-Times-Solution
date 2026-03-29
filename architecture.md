@@ -1,52 +1,71 @@
 # Complete System Architecture (FinMentor AI & ArthaScan)
 
 > [!IMPORTANT]
-> This system is built on **"Zero-Hallucination Finance,"** isolating mathematical logic from generative AI to ensure 100% accurate financial calculations.
+> This system is built on **"Zero-Hallucination Finance,"** strictly isolating all mathematical and business logic from the generative AI models to ensure 100% accuracy.
 
 ---
 
-## Unified Flow
-![Architecture Diagram](./architecture.png)
+## Unified Visual Flow
+![System Architecture Diagram](./architecture.svg)
+
+### Color Guide
+- **Purple nodes:** Non-deterministic generative Vision LLMs.
+- **Teal nodes:** Pure Python, 100% deterministic algorithms.
+- **Red nodes:** Silent fail-safe mechanisms (Regex fallback).
+- **Orange nodes:** Final, immutable business logic actions.
 
 ---
 
-## Component Breakdown
+## 1. Multimodal Data Extraction Pipeline
+Standard text-crawlers routinely mangle complex CAMS/KFintech statement tables. Our pipeline avoids this:
+*   **Web Dashboard:** `pdfplumber` extracts raw text from CAMS PDFs and optional Form 16 documents, then **Gemini 2.5 Flash** converts it to validated JSON with strict schema prompting.
+*   **Telegram Bot:** Rasterizes PDFs to 200 DPI PNGs via `PyMuPDF` for high-accuracy image-to-JSON extraction via Gemini Vision.
+*   **Self-Healing Loop:** Pydantic validation with recursive re-prompting on malformed output.
+*   **Regex Fallback:** Silent parser as safety net during API timeouts, ensuring data stability.
 
-### 1. Multi-Channel Extraction
-Standard text extraction often fails on complex statements. We use LLMs for structured parsing:
-*   **Web Dashboard:** `pdfplumber` extracts raw text, then **Gemini 2.5 Flash** converts it to validated JSON with strict schema prompting.
-*   **Telegram Bot:** Rasterizes PDFs to 200 DPI PNGs via `PyMuPDF` for high-accuracy image-to-JSON extraction via Gemini.
-*   **Error Handling:** Features Pydantic validation with re-prompts and regex fallbacks for resilient data capture.
+---
 
-### 2. Deterministic Financial Engine (The Sandbox)
-AI is banned from calculations. A static Python engine processes the validated JSON payload:
-*   **XIRR Engine:** Uses `pyxirr` for true annualized returns per-fund and portfolio-wide.
-*   **Overlap Engine:** Pairwise fund overlap detection to reveal hidden duplicate exposure.
-*   **Wealth Bleed Calculator:** 10-year expense ratio erosion vs index baselines.
-*   **FIRE Planner:** Goal-based SIP allocation with inflation-adjusted corpus projections.
-*   **Tax Wizard:** Old vs New regime comparison with deduction gap analysis (80C, 80D, NPS).
+## 2. The "Zero-Hallucination" Math Sandbox
+LLMs are permanently banned from performing financial computations. The validated JSON enters a walled-off **Deterministic Financial Engine**:
+- **XIRR Engine:** Uses `pyxirr` for exact XNPV/XIRR against historical cashflows — per-fund and portfolio-wide.
+- **Overlap Engine:** Pairwise fund overlap detection with interactive Network Graph visualization.
+- **Wealth Bleed Calculator:** 10-year expense ratio erosion vs Direct Plan baselines. Real-time ticker.
+- **Benchmark Timeline:** Month-by-month portfolio value vs Nifty 50 with identical SIPs.
+- **FIRE Planner:** Goal-based SIP allocation with inflation-adjusted corpus projections.
+- **Tax Wizard:** Old vs New regime comparison with deduction gap analysis (80C, 80D, 80CCD, HRA).
+- **Stress Test:** Scenario-based loss estimation under Nifty corrections with beta-adjusted concentration risk.
 
-### 3. Agent Roles & Decisions
-*   **Extraction Agent:** Converts messy PDFs into structured "Financial Truth" dictionaries.
-*   **Verdict Agent:** Gemini generates a grounded verdict (scores, findings, actions) constrained by the deterministic metrics — it cannot invent numbers.
-*   **Q&A Agent:** Chat Guard prevents hallucinations by grounding answers in the precomputed context object.
+---
 
-### 4. Frontend Architecture
-*   **React 18 + Framer Motion:** Scroll-reveal animations, glassmorphic nav, animated number counters.
-*   **Recharts:** Radar chart (Money Health Score), area charts (FIRE projection), bar charts (XIRR comparison).
-*   **Interactive Tools:** What-If Life Event Simulator, Portfolio Stress Test, Wealth Bleed Ticker.
+## 3. Rigid Decision Hierarchy (rules.py)
+The math engine passes aggregated financial truths into a hardcoded heuristic tree:
+*   If **Overlap > 60%**, triggers `CONSOLIDATE`.
+*   If a fund is a **"Closet Indexer"** (high tracking, high fees), triggers `SWITCH`.
+*   If performance is optimal, triggers `KEEP`.
 
-### 5. Tool Integrations
+The system tells the AI what the math has already decided.
+
+---
+
+## 4. "Glass-Box" Presentation & Chat Guards
+LLMs serve strictly as a UI translation layer with an **Intent Router**:
+1.  **Math Queries:** Bypass AI entirely, return deterministic answers from the engine.
+2.  **Explanation Agent:** Translates deterministic JSON into English/Hinglish without hallucinations.
+3.  **Voice AI:** Web Speech API with continuous recognition for hands-free consultation.
+
+---
+
+## 5. Tool Integrations
 | Interface     | Tech Stack              | Primary Tools                          |
 | :------------ | :---------------------- | :------------------------------------- |
-| **Backend**   | FastAPI / Python        | pyxirr, pdfplumber, google-generativeai |
-| **Frontend**  | React 18 / Recharts     | Framer Motion, Lucide Icons             |
-| **Bot**       | Telegram Bot API        | PyMuPDF, ReportLab (PDF Gen), Cache     |
+| **Backend**   | FastAPI / Python 3.11   | pyxirr, pdfplumber, google-generativeai |
+| **Frontend**  | React 18 / Recharts     | Framer Motion, Web Speech API           |
+| **Bot**       | Telegram Bot API        | PyMuPDF, ReportLab, httpx               |
 
 ---
 
 ## Scalability & Production Note
-The architecture is **model-agnostic**. Gemini can be swapped for Claude, GPT-4, or on-premise models (e.g., LLaVA) without altering the core deterministic engines. The math layer never changes regardless of which LLM handles extraction and presentation.
+The architecture is **model-agnostic**. Gemini can be swapped for Claude, GPT-4, or on-premise models (e.g., LLaVA) without altering the core deterministic engines. File-backed sessions upgradeable to Redis/PostgreSQL for production.
 
 <details>
 <summary>View Mermaid Source Code</summary>
@@ -88,8 +107,16 @@ graph TD
         HealthScore --> Metrics
     end
 
+    subgraph DecisionEngine[Decision Engine]
+        Metrics --> Rules[rules.py]
+        Rules --> Actions{Final Actions / Verdict}
+        Actions -->|"Overlap > 60%"| Consolidate([CONSOLIDATE])
+        Actions -->|"High TER"| Sell([SELL / SWITCH])
+        Actions -->|"Good Performance"| Keep([KEEP])
+    end
+
     subgraph PresentationLayer[Presentation Layer]
-        Metrics --> VerdictAgent[Gemini Verdict Agent]
+        Actions --> VerdictAgent[Gemini Verdict Agent]
         VerdictAgent --> DashboardUI[React Dashboard]
         VerdictAgent --> PDFGen[ReportLab PDF]
 
