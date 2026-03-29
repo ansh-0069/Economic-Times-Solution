@@ -5,6 +5,7 @@ This document provides a high-level visual and structural breakdown of the Artha
 ## 1. Top-Down Visual Flow
 
 ```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'edgeLabelBackground':'transparent', 'tertiaryColor': '#fff', 'primaryTextColor': '#fff', 'edgeColor': '#fff', 'mainBkg': '#1e1e1e' }}}%%
 graph TD
     %% User Inputs
     User((User)) -->|Uploads PDF Statement\nvia Telegram| TBot[Telegram Bot Interface]
