@@ -66,6 +66,17 @@ graph TD
         WebRouter -- Grounded Q&A --> Web
         BotRouter -- Grounded Q&A --> TBot
     end
+
+    %% Theming (High Contrast for Dark/Light Mode)
+    classDef llm fill:#7E57C2,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef logic fill:#00897B,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef fail-safe fill:#D32F2F,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef action fill:#F57C00,stroke:#fff,stroke-width:2px,color:#fff;
+    
+    class Vision,WebVision,Repair,WebRouter,BotRouter llm;
+    class Metrics,XIRR,Overlap,Tax,Health logic;
+    class RegexMatcher fail-safe;
+    class Consolidate,Sell,Keep action;
 ```
 
 ### Color Guide / Legends

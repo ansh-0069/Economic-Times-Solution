@@ -61,11 +61,11 @@ graph TD
         Cache --> TBot
     end
 
-    %% Theming
-    classDef llm fill:#bb86fc,stroke:#fff,stroke-width:2px,color:#000;
-    classDef logic fill:#03dac6,stroke:#fff,stroke-width:2px,color:#000;
-    classDef fail-safe fill:#cf6679,stroke:#fff,stroke-width:2px,color:#000;
-    classDef action fill:#ffb74d,stroke:#fff,stroke-width:2px,color:#000;
+    %% Theming (High Contrast for Dark/Light Mode)
+    classDef llm fill:#7E57C2,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef logic fill:#00897B,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef fail-safe fill:#D32F2F,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef action fill:#F57C00,stroke:#fff,stroke-width:2px,color:#fff;
     
     class Vision,Repair,GuardedLLM llm;
     class Metrics,XIRR,Overlap,Health,Rules logic;
