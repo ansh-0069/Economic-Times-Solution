@@ -1,8 +1,48 @@
 # Complete System Architecture (FinMentor AI & ArthaScan)
 
-This document provides a high-level visual and structural breakdown of the entire unified ecosystem (Web Dashboard & Telegram Bot). The core philosophy is **"Zero-Hallucination Finance,"** strictly isolating all mathematical and business logic from the generative AI models, while providing multiple interfaces.
+> [!IMPORTANT]
+> This system is built on **"Zero-Hallucination Finance,"** isolating mathematical logic from generative AI to ensure 100% accurate financial advice.
 
-## 1. Top-Down Visual Flow
+---
+
+## 🏗️ Unified Flow
+![Architecture Diagram](./architecture.png)
+
+---
+
+## 🛠️ Component Breakdown (1-Page Summary)
+
+### 1. Multi-Channel Extraction (Vision-First)
+Standard text extraction often fails on complex statements. We use **Vision LLMs** to "read" document images:
+*   **Web Dashboard:** Combines `pdfplumber` with Vision-capable LLMs for structural parsing.
+*   **Telegram Bot:** Rasterizes PDFs to 200 DPI PNGs via `PyMuPDF` for high-accuracy image-to-JSON extraction.
+*   **Error Handling:** Features a **Self-Healing Loop** (Pydantic re-prompts for JSON repairs) and **Regex Fallbacks** for resilient data capture.
+
+### 2. Deterministic Financial Engine (The Sandbox)
+AI is banned from calculations. A static Python engine processes the validated JSON payload:
+*   **XIRR Engine:** Uses `XNPV` binary-search for true annualized returns.
+*   **Duplication Engine:** Intersects fund holdings to find hidden asset overlap.
+*   **Wealth Bleed:** Calculates 10-year fee erosion vs. index baselines.
+
+### 3. Agent Roles & Decisions
+*   **Extraction Agent:** Converts messy PDFs into structured "Financial Truth" dictionaries.
+*   **Decision Engine:** A rigid heuristic tree (rules.py) that issues `SELL`, `SWITCH`, or `CONSOLIDATE` commands based on math—not probability.
+*   **Presentation Agent:** Translates JSON findings into fluid conversational English/Hinglish (Chat Guards prevent hallucinations).
+
+### 4. Tool Integrations
+| Interface | Tech Stack | Primary Tools |
+| :--- | :--- | :--- |
+| **Backend** | FastAPI / Python | pyxirr, numpy, pydantic |
+| **Frontend** | React 18 / Recharts | Animated ScoreRings, Heatmaps |
+| **Bot** | Telegram Bot API | ReportLab (PDF Gen), Cache |
+
+---
+
+## 🛡️ Scalability & Production Note
+The architecture is **model-agnostic**. Cloud-based Vision LLMs can be swapped for on-premise models (e.g., LLaVA) or secure enterprise OCR engines (e.g., Textract) to ensure data residency without altering the core deterministic engines.
+
+<details>
+<summary>View Mermaid Source Code</summary>
 
 ```mermaid
 %%{init: {'theme': 'dark', 'themeVariables': { 'edgeLabelBackground':'transparent', 'tertiaryColor': '#fff', 'primaryTextColor': '#fff', 'edgeColor': '#fff', 'mainBkg': '#1e1e1e' }}}%%
@@ -79,34 +119,4 @@ graph TD
     class RegexMatcher fail-safe;
     class Consolidate,Sell,Keep action;
 ```
-
-### Color Guide / Legends
-- **Purple / Cloud logic:** Non-deterministic generative Vision LLMs.
-- **Teal / Local nodes:** Pure Python, 100% deterministic algorithms.
-- **Red / Fallbacks:** Silent fail-safe mechanisms avoiding API drops.
-
----
-
-## 2. Component Explanations
-
-### Phase 1: Multimodal Data Extraction
-Standard text-crawlers routinely mangle complex mutual fund statement tables. To fix this, we employ a multimodal approach:
-- **Telegram Bot:** Uses `PyMuPDF` to rasterize PDFs into images, feeding them to **Vision LLMs**. 
-- **Web App:** Uses **Vision LLMs** combined with `pdfplumber`.
-Both pathways force the LLM outputs through strict **Pydantic Validation**. If syntax breaks from the LLM, a self-healing loop repairs the payload before proceeding.
-
-### Phase 2: The "Zero-Hallucination" Sandbox
-LLMs are banned from doing math. The validated structured data is passed into pure Python deterministic engines:
-- **XIRR & Tax:** Exact `XNPV` computations and Tax regime matching.
-- **Overlap & Bleed:** Individual stock intersection mapping and 10-Year TER erosion calculations against index baselines.
-
-### Phase 3: Rigid Decision Hierarchy & UI
-Aggregated financial truths trigger an absolute Rules Engine, rendering outputs to users either via a highly animated React unified dashboard, or an instant actionable message + PDF payload via Telegram. 
-
-### Phase 4: Conversational Chat Guard
-The "Ask AI" conversational layers are forced to route through Chat Guards referencing *only* the computed math dictionary, effectively translating concrete mathematical JSON truths into fluid English or Hinglish without hallucinations. 
-
----
-
-## 🛡️ Model & Scalability Note
-For the purpose of this prototype, API-based Vision LLMs are used to demonstrate state-of-the-art accuracy. To mitigate vendor lock-in or privacy concerns in a production setting, the system is architected to be **model-agnostic**. Any vision-capable model (including local open-weights models like LLaVA) can be swapped in by updating the extraction adapter layer.
+</details>
