@@ -109,9 +109,9 @@ graph TD
     subgraph Decision Engine
         FinancialTruth --> Rules[rules.py]
         Rules --> Actions{Final Actions / Verdict}
-        Actions -->|Overlap > 60%| Consolidate([CONSOLIDATE])
-        Actions -->|High TER| Sell([SELL / SWITCH])
-        Actions -->|Good Performance| Keep([KEEP])
+        Actions -->|"Overlap > 60%"| Consolidate([CONSOLIDATE])
+        Actions -->|"High TER"| Sell([SELL / SWITCH])
+        Actions -->|"Good Performance"| Keep([KEEP])
     end
 
     %% Presentation Layer

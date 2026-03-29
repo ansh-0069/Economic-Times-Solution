@@ -8,6 +8,7 @@
 \usepackage{enumitem}
 \usepackage{tcolorbox}
 \usepackage{booktabs}
+\usepackage{caption}
 
 % Custom Colors
 \definecolor{primary}{HTML}{1A237E}
@@ -34,10 +35,11 @@ The FinMentor AI ecosystem addresses the critical problem of automated financial
 \section{System Architecture Overview}
 The system enables a dual-channel experience via a full \textbf{React Web Dashboard} and a frictionless \textbf{Telegram Bot Interface}. Both channels converge on a unified high-resolution extraction and analysis pipeline.
 
-\begin{center}
-    \includegraphics[width=0.85\textwidth]{architecture.png}
-    \captionof{figure}{High-Level System Flow: Extraction, Calculation, and Decision Layers}
-\end{center}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=\textwidth]{architecture.png}
+    \caption{High-Level System Flow: Extraction, Calculation, and Decision Layers}
+\end{figure}
 
 \section{I. Multimodal Data Extraction Pipeline}
 Large Language Models often struggle with dense, tabular financial statements (CAMS/KFintech). Our pipeline bypasses traditional text-crawling vulnerabilities through a Vision-First approach:
