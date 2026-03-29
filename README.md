@@ -62,6 +62,8 @@ React Dashboard — dark UI, animated score rings, charts
 
 ## Setup & Run
 
+Python: use 3.11 to 3.13 (3.14+ may break older SDK dependencies).
+
 ### 1. Get API Key
 Get your Anthropic API key from https://console.anthropic.com
 

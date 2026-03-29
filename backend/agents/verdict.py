@@ -10,7 +10,11 @@ import anthropic
 
 load_dotenv()
 API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
-client = anthropic.Anthropic(api_key=API_KEY) if API_KEY else None
+try:
+    client = anthropic.Anthropic(api_key=API_KEY) if API_KEY else None
+except Exception:
+    # Keep backend usable in fallback mode if SDK/runtime versions are incompatible.
+    client = None
 
 
 def _model_candidates():
@@ -192,7 +196,7 @@ Severity rules:
         raw = re.sub(r"^```json\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         return json.loads(raw)
-    except Exception as e:
+    except Exception:
         # Graceful fallback — still returns something useful
         return {
             "scores": {
