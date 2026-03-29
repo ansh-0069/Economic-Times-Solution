@@ -163,11 +163,14 @@ async def _execute_portfolio_analysis(update: Update, context: ContextTypes.DEFA
     typing_task = asyncio.create_task(_typing_indicator(update, context, stop_event))
     progress_task = asyncio.create_task(_progress_indicator(progress_message, stop_event))
 
+    import logging
+    _log = logging.getLogger(__name__)
+
     web_result = None
     try:
         web_result = await _run_pipeline_web(temp_pdf)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Web pipeline failed: %s", exc)
 
     if web_result and web_result.get("verdict"):
         stop_event.set()
@@ -176,7 +179,16 @@ async def _execute_portfolio_analysis(update: Update, context: ContextTypes.DEFA
         safe_delete(temp_pdf)
 
         language = context.user_data.get("language", context.bot_data.get("default_language", "english"))
-        final_message = format_web_response(web_result, language=language)
+
+        try:
+            final_message = format_web_response(web_result, language=language)
+        except Exception as exc:
+            _log.warning("format_web_response failed: %s", exc)
+            final_message = "✅ Analysis complete! Use the buttons below to explore your results."
+
+        dashboard_url = _get_dashboard_url(web_result)
+        if dashboard_url and not _is_public_url(dashboard_url):
+            final_message += f"\n\n📊 <b>Open Full Dashboard:</b>\n{dashboard_url}"
 
         context.user_data["web_result"] = web_result
         context.user_data["analysis_metrics"] = None
@@ -192,12 +204,20 @@ async def _execute_portfolio_analysis(update: Update, context: ContextTypes.DEFA
             await progress_message.edit_text("✅ Analysis complete.")
 
         keyboard = _build_result_keyboard_with_dashboard(web_result, language)
-        await update.effective_message.reply_text(
-            final_message,
-            parse_mode=ParseMode.HTML,
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
+        try:
+            await update.effective_message.reply_text(
+                final_message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
+        except BadRequest as e:
+            _log.warning("HTML reply failed (%s), falling back to plain text", e)
+            await update.effective_message.reply_text(
+                final_message,
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
         return
 
     # Fallback to local pipeline
@@ -266,25 +286,76 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
     metrics = context.user_data.get("analysis_metrics")
     decision_output = context.user_data.get("decision_output")
+    web_result = context.user_data.get("web_result")
 
-    if not metrics or not decision_output:
+    has_local = metrics and decision_output
+    has_web = bool(web_result and web_result.get("verdict"))
+
+    if not has_local and not has_web:
         await query.message.reply_text("Upload a PDF first so I can generate the analysis.")
         return
 
     language = context.user_data.get("language", context.bot_data.get("default_language", "english"))
 
+    # Language switch
     if query.data in LANGUAGE_CALLBACKS:
         new_language = LANGUAGE_CALLBACKS[query.data]
         context.user_data["language"] = new_language
-        translated_message = format_response(decision_output, metrics, language=new_language)
-        await query.message.reply_text(
-            translated_message,
-            parse_mode=ParseMode.HTML,
-            reply_markup=create_result_keyboard(new_language),
-            disable_web_page_preview=True,
-        )
+        if has_web:
+            translated = format_web_response(web_result, language=new_language)
+            keyboard = _build_result_keyboard_with_dashboard(web_result, new_language)
+        else:
+            translated = format_response(decision_output, metrics, language=new_language)
+            keyboard = create_result_keyboard(new_language)
+        try:
+            await query.message.reply_text(
+                translated, parse_mode=ParseMode.HTML,
+                reply_markup=keyboard, disable_web_page_preview=True,
+            )
+        except BadRequest:
+            await query.message.reply_text(
+                translated, reply_markup=keyboard, disable_web_page_preview=True,
+            )
         return
 
+    # Web-result path: handle callbacks with Gemini using web data as context
+    if has_web and not has_local:
+        keyboard = _build_result_keyboard_with_dashboard(web_result, language)
+
+        if query.data == "download_report":
+            await query.message.reply_text(
+                "📊 For the full downloadable report, use the web dashboard.\n"
+                "You can view and print your complete analysis there.",
+                reply_markup=keyboard,
+            )
+            return
+
+        response_key = CALLBACK_MAP.get(query.data)
+        if response_key is None:
+            await query.message.reply_text(
+                "That action is not available right now.", reply_markup=keyboard,
+            )
+            return
+
+        try:
+            explanation = await _explain_web_result(web_result, response_key, language)
+            try:
+                await query.message.reply_text(
+                    explanation, parse_mode=ParseMode.HTML,
+                    reply_markup=keyboard, disable_web_page_preview=True,
+                )
+            except BadRequest:
+                await query.message.reply_text(
+                    explanation, reply_markup=keyboard, disable_web_page_preview=True,
+                )
+        except Exception:
+            await query.message.reply_text(
+                "Hit a problem generating that explanation. Please try again.",
+                reply_markup=keyboard,
+            )
+        return
+
+    # Local-result path (original flow)
     try:
         if query.data == "download_report":
             await _handle_report_download(query, metrics, decision_output, language)
@@ -321,6 +392,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import logging
+    logging.getLogger(__name__).exception("Unhandled error: %s", context.error)
     if isinstance(update, Update) and update.effective_message:
         with contextlib.suppress(Exception):
             await update.effective_message.reply_text(
@@ -438,6 +511,19 @@ async def _handle_report_download(
         safe_delete(report_path)
 
 
+def _get_dashboard_url(web_result: dict[str, Any]) -> str | None:
+    """Build the dashboard deep-link URL if session_id is available."""
+    session_id = web_result.get("session_id")
+    if not session_id:
+        return None
+    return f"{WEB_FRONTEND_URL}?session={session_id}"
+
+
+def _is_public_url(url: str) -> bool:
+    """Check if a URL uses a public domain that Telegram accepts in inline buttons."""
+    return url.startswith("https://") and "localhost" not in url and "127.0.0.1" not in url
+
+
 def _build_result_keyboard_with_dashboard(web_result: dict[str, Any], language: str) -> InlineKeyboardMarkup:
     """Build inline keyboard with a 'Open Full Dashboard' deep-link button when session_id is available."""
     english_label = "English ✅" if language == "english" else "English"
@@ -449,9 +535,8 @@ def _build_result_keyboard_with_dashboard(web_result: dict[str, Any], language: 
         ],
     ]
 
-    session_id = web_result.get("session_id")
-    if session_id:
-        dashboard_url = f"{WEB_FRONTEND_URL}?session={session_id}"
+    dashboard_url = _get_dashboard_url(web_result)
+    if dashboard_url and _is_public_url(dashboard_url):
         buttons.append([
             InlineKeyboardButton("📊 Open Full Dashboard", url=dashboard_url),
         ])
@@ -463,6 +548,62 @@ def _build_result_keyboard_with_dashboard(web_result: dict[str, Any], language: 
         [InlineKeyboardButton("Download detailed report", callback_data="download_report")],
     ])
     return InlineKeyboardMarkup(buttons)
+
+
+async def _explain_web_result(web_result: dict[str, Any], response_key: str, language: str) -> str:
+    """Use Gemini to explain an aspect of the web analysis result."""
+    from html import escape
+
+    verdict = web_result.get("verdict") or {}
+    xray = web_result.get("xray") or {}
+    fire = web_result.get("fire") or {}
+    tax = web_result.get("tax") or {}
+
+    context_summary = (
+        f"Overall score: {verdict.get('scores', {}).get('overall', 'N/A')}/100. "
+        f"XIRR: {xray.get('portfolio_xirr_pct', 'N/A')}%. "
+        f"Portfolio value: {xray.get('total_current_value', 'N/A')}. "
+        f"Annual expense drag: {xray.get('annual_expense_drag', 'N/A')}. "
+        f"High overlap pairs: {len(xray.get('high_overlap_pairs', []))}. "
+        f"Retirement readiness: {fire.get('readiness_score', 'N/A')}/100. "
+        f"Tax saving possible: {tax.get('annual_saving', 'N/A')}. "
+        f"Findings: {', '.join(f.get('title', '') for f in verdict.get('findings', [])[:4])}."
+    )
+
+    prompts = {
+        "why": f"Explain why this portfolio got this health score and what the key issues are. Context: {context_summary}",
+        "move": f"Suggest where to move investments for better returns and lower costs. Context: {context_summary}",
+        "inaction": f"Explain what happens if the investor does nothing and keeps the current portfolio as-is for 5-10 years. Context: {context_summary}",
+        "simple": f"Explain this portfolio analysis in very simple terms, like explaining to a friend who knows nothing about finance. Context: {context_summary}",
+    }
+
+    prompt = prompts.get(response_key, prompts["simple"])
+    if language == "hinglish":
+        prompt += " Respond in Hinglish (Hindi written in English script, mixed with English)."
+
+    try:
+        from ai.gemini_explainer import _get_client, _model_name, _gemini_enabled, _normalize_response_text
+        if _gemini_enabled():
+            client = _get_client()
+            if client:
+                resp = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=_model_name(),
+                    contents=prompt,
+                )
+                text = _normalize_response_text(getattr(resp, "text", "") or "")
+                if text:
+                    return escape(text)
+    except Exception:
+        pass
+
+    fallback = {
+        "why": f"Your portfolio scored {verdict.get('scores', {}).get('overall', '?')}/100. Key areas: expense drag of ₹{xray.get('annual_expense_drag', '?')}/yr and {len(xray.get('high_overlap_pairs', []))} overlapping fund pairs.",
+        "move": "Consider switching to direct plans to reduce fees, and consolidate overlapping funds to simplify your portfolio.",
+        "inaction": f"If you do nothing, expense drag alone could cost you ₹{xray.get('expense_drag_10y', '?')} over 10 years.",
+        "simple": f"Your money health is {verdict.get('scores', {}).get('overall', '?')}/100. You're paying hidden fees and some of your funds overlap — meaning you're paying double for the same stocks.",
+    }
+    return fallback.get(response_key, "Analysis is available. Try asking a specific question.")
 
 
 def _should_use_demo_metrics(metrics: dict[str, Any]) -> bool:

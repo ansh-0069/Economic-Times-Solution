@@ -48,6 +48,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Sessions
+.sessions/
+
 # OS Files
 .DS_Store
 .DS_Store?

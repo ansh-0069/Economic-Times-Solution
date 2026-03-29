@@ -43,7 +43,9 @@ export default function App() {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {}
         window.history.replaceState({}, '', window.location.pathname);
       })
-      .catch(() => {})
+      .catch(() => {
+        alert('Session expired or not found. Please re-upload your PDF or start a new analysis.');
+      })
       .finally(() => setLoading(false));
   }, []);
 

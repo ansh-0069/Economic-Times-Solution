@@ -1,6 +1,7 @@
 """FastAPI backend — all endpoints for FinMentor AI."""
 
 import json, os, tempfile, uuid
+from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -18,7 +19,19 @@ load_dotenv()
 app = FastAPI(title="FinMentor AI", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-_sessions: dict[str, dict] = {}
+_SESSION_DIR = Path(__file__).resolve().parent.parent / ".sessions"
+_SESSION_DIR.mkdir(exist_ok=True)
+
+
+def _save_session(session_id: str, data: dict):
+    (_SESSION_DIR / f"{session_id}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def _load_session(session_id: str) -> dict | None:
+    p = _SESSION_DIR / f"{session_id}.json"
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    return None
 
 
 class QARequest(BaseModel):
@@ -128,13 +141,13 @@ async def analyse(
         "is_demo": demo,
         "session_id": session_id,
     }
-    _sessions[session_id] = result
+    _save_session(session_id, result)
     return result
 
 
 @app.get("/session/{session_id}")
 def get_session(session_id: str):
-    data = _sessions.get(session_id)
+    data = _load_session(session_id)
     if not data:
         raise HTTPException(404, "Session not found or expired")
     return data

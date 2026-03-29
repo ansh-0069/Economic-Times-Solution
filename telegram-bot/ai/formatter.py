@@ -77,11 +77,11 @@ def format_callback_response(
 def format_web_response(data: dict[str, Any], language: str = "english") -> str:
     """Format the web backend's /analyse response for Telegram HTML display."""
     language_key = "hinglish" if language.lower() == "hinglish" else "english"
-    verdict = data.get("verdict", {})
-    xray = data.get("xray", {})
-    scores = verdict.get("scores", {})
-    findings = verdict.get("findings", [])
-    summary = verdict.get("summary", "")
+    verdict = data.get("verdict") or {}
+    xray = data.get("xray") or {}
+    scores = verdict.get("scores") or {}
+    findings = verdict.get("findings") or []
+    summary = verdict.get("summary") or ""
     overall = scores.get("overall", 0)
 
     parts = []
@@ -89,26 +89,31 @@ def format_web_response(data: dict[str, Any], language: str = "english") -> str:
     parts.append(_build_health_score_display(overall, language_key))
 
     if summary:
-        parts.append(f"📋 {escape(summary)}")
+        parts.append(f"📋 {escape(str(summary))}")
 
     if findings:
         finding_lines = []
         for f in findings[:3]:
-            emoji = f.get("emoji", "•")
-            title = escape(f.get("title", ""))
-            headline = escape(f.get("headline", ""))
+            emoji = str(f.get("emoji", "•"))
+            title = escape(str(f.get("title", "")))
+            headline = escape(str(f.get("headline", "")))
             finding_lines.append(f"{emoji} <b>{title}</b>\n{headline}")
         parts.append("\n\n".join(finding_lines))
 
     metrics_lines = []
-    if xray.get("portfolio_xirr_pct") is not None:
-        metrics_lines.append(f"📈 XIRR: <b>{xray['portfolio_xirr_pct']:.1f}%</b>")
-    if xray.get("total_current_value"):
-        metrics_lines.append(f"💰 Portfolio: <b>{format_currency(xray['total_current_value'])}</b>")
-    if xray.get("annual_expense_drag"):
-        metrics_lines.append(f"💸 Annual Fee Drag: <b>{format_currency(xray['annual_expense_drag'])}</b>")
-    if xray.get("high_overlap_pairs"):
-        metrics_lines.append(f"🔁 Overlap Pairs: <b>{len(xray['high_overlap_pairs'])}</b>")
+    try:
+        xirr_val = xray.get("portfolio_xirr_pct")
+        if xirr_val is not None:
+            metrics_lines.append(f"📈 XIRR: <b>{float(xirr_val):.1f}%</b>")
+        if xray.get("total_current_value"):
+            metrics_lines.append(f"💰 Portfolio: <b>{format_currency(xray['total_current_value'])}</b>")
+        if xray.get("annual_expense_drag"):
+            metrics_lines.append(f"💸 Annual Fee Drag: <b>{format_currency(xray['annual_expense_drag'])}</b>")
+        overlap_pairs = xray.get("high_overlap_pairs")
+        if overlap_pairs:
+            metrics_lines.append(f"🔁 Overlap Pairs: <b>{len(overlap_pairs)}</b>")
+    except (TypeError, ValueError):
+        pass
     if metrics_lines:
         parts.append("\n".join(metrics_lines))
 
@@ -123,7 +128,7 @@ def format_web_response(data: dict[str, Any], language: str = "english") -> str:
 
     good_news = verdict.get("good_news")
     if good_news:
-        parts.append(f"✅ {escape(good_news)}")
+        parts.append(f"✅ {escape(str(good_news))}")
 
     return "\n\n".join(parts)
 
