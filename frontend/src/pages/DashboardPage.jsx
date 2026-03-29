@@ -1,318 +1,225 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, Cell, PieChart, Pie
+  Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
+  LineChart as RLineChart, Line, Legend,
 } from 'recharts';
-import { motion, AnimatePresence } from 'framer-motion';
-import { fmt, askQuestion, scoreColor } from '../utils/helpers';
+import {
+  Crosshair, Flame, Receipt, MessageCircle, Search,
+  ArrowUpRight, ArrowDownRight, TrendingUp, Lightbulb,
+  Send, BarChart3, DollarSign, Target, Shield, X,
+  AlertTriangle, Zap, Baby, Heart, Gift, Briefcase,
+  ArrowLeft, Mic, MicOff, Newspaper, LineChart,
+} from 'lucide-react';
+import { fmt, askQuestion, scoreColor, useReveal } from '../utils/helpers';
 
-// ── Glassmorphism Tooltip ─────────────────────────────────────────────────────
-const GlassTooltip = ({ active, payload, label }) => {
+const CHART_COLORS = ['#818cf8', '#60a5fa', '#34d399', '#fbbf24', '#f87171'];
+
+const ChartTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: 'rgba(10,10,18,0.88)',
-      border: '0.5px solid rgba(255,255,255,0.12)',
-      borderRadius: 12,
-      padding: '10px 14px',
-      fontSize: 12,
-      backdropFilter: 'blur(24px)',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-      minWidth: 120,
+      background: 'rgba(12,12,18,0.9)', backdropFilter: 'blur(12px)',
+      border: '1px solid var(--border2)',
+      borderRadius: 10, padding: '10px 14px', fontSize: 12,
     }}>
-      <div style={{ color: 'var(--text3)', marginBottom: 6, fontSize: 11, fontWeight: 600 }}>{label}</div>
+      <div style={{ color: 'var(--text3)', marginBottom: 4, fontWeight: 600, fontSize: 11 }}>{label}</div>
       {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color || 'var(--text)', display: 'flex', justifyContent: 'space-between', gap: 16, fontWeight: 600 }}>
-          <span style={{ color: 'var(--text2)', fontWeight: 400 }}>{p.name}</span>
-          <span>{typeof p.value === 'number' && p.value > 10000 ? fmt.rupees(p.value) : p.value}</span>
+        <div key={i} style={{ color: p.color || 'var(--text)', fontWeight: 600 }}>
+          {p.name}: {typeof p.value === 'number' && p.value > 10000 ? fmt.rupees(p.value) : p.value}
         </div>
       ))}
     </div>
   );
 };
 
-// ── Fund Overlap Heatmap ──────────────────────────────────────────────────────
-function HeatmapMatrix({ pairs = [] }) {
-  // Build unique fund list from pairs
-  const fundSet = new Set();
-  pairs.forEach(p => { fundSet.add(p.fund_a); fundSet.add(p.fund_b); });
-  const allFunds = Array.from(fundSet);
+// ── Reveal wrapper ─────────────────────────────────────────────────────────────
+function RevealCard({ children, delay = 0, className = 'card', style = {} }) {
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, amount: 0.15 });
+  return (
+    <motion.div ref={ref} className={className} style={style}
+      initial={{ opacity: 0, y: 30, scale: 0.97 }}
+      animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
+      transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
-  const [selectedFunds, setSelectedFunds] = useState(allFunds);
+// ── Overlap Network Graph ──────────────────────────────────────────────────────
+function OverlapNetworkGraph({ folios = [], overlapMatrix = [] }) {
+  const [hovered, setHovered] = useState(null);
+  const W = 340, H = 260;
+  const cx = W / 2, cy = H / 2;
+  const n = folios.length;
+  const radius = Math.min(W, H) * 0.34;
 
-  // Sync when allFunds changes (on data load)
-  useEffect(() => {
-    setSelectedFunds(allFunds);
-    // intentionally depends only on pairs.length to reset on data change
-    // eslint-disable-next-line
-  }, [pairs.length]);
-
-  const visibleFunds = allFunds.filter(f => selectedFunds.includes(f));
-
-  // Build lookup map: "A|||B" → overlap_pct
-  const lookup = {};
-  pairs.forEach(p => {
-    lookup[`${p.fund_a}|||${p.fund_b}`] = p.overlap_pct;
-    lookup[`${p.fund_b}|||${p.fund_a}`] = p.overlap_pct;
+  const nodes = folios.map((f, i) => {
+    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+    return {
+      id: i, label: f.scheme_name.split(' ').slice(0, 2).join(' '),
+      x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle),
+      xirr: f.xirr_pct,
+    };
   });
 
-  const getOverlap = (a, b) => {
-    if (a === b) return 100;
-    return lookup[`${a}|||${b}`] ?? 0;
-  };
+  const edges = overlapMatrix.filter(e => e.pct > 0).map(e => {
+    const ai = folios.findIndex(f => f.scheme_name === e.a);
+    const bi = folios.findIndex(f => f.scheme_name === e.b);
+    return { ...e, ai, bi };
+  }).filter(e => e.ai >= 0 && e.bi >= 0);
 
-  const overlapColor = (pct, isself) => {
-    if (isself) return 'rgba(255,255,255,0.08)';
-    if (pct === 0) return 'rgba(255,255,255,0.02)';
-    const intensity = Math.min(pct / 80, 1);
-    const r = Math.round(255 * intensity);
-    const g = Math.round(77 * (1 - intensity * 0.6));
-    const b = Math.round(109 * (1 - intensity * 0.4));
-    return `rgba(${r},${g},${b},${0.15 + intensity * 0.55})`;
-  };
-
-  const cellSize = Math.max(Math.min(Math.floor(340 / (visibleFunds.length || 1)), 72), 32);
-  const labelW = 110;
-
-  if (allFunds.length === 0) {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: 24 }}>
-        No significant overlaps — well diversified ✓
-      </div>
-    );
-  }
+  const edgeColor = (pct) =>
+    pct > 45 ? 'var(--red)' : pct > 25 ? 'var(--amber)' : 'var(--border2)';
 
   return (
     <div>
-      {/* Fund filter chips */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-        <button
-          onClick={() => setSelectedFunds(
-            selectedFunds.length === allFunds.length ? [] : [...allFunds]
-          )}
-          style={{
-            fontSize: 10, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
-            border: '0.5px solid var(--glass-border2)', fontWeight: 700,
-            background: selectedFunds.length === allFunds.length ? 'var(--green-dim)' : 'transparent',
-            color: selectedFunds.length === allFunds.length ? 'var(--green)' : 'var(--text3)',
-            fontFamily: 'inherit',
-          }}
-        >
-          All
-        </button>
-        {allFunds.map(f => {
-          const active = selectedFunds.includes(f);
-          const shortName = f.length > 18 ? f.slice(0, 16) + '…' : f;
+      <div className="section-title" style={{ marginBottom: 4 }}>Fund Overlap Network</div>
+      <div className="section-sub" style={{ marginBottom: 16 }}>
+        Hover edges to see overlap. Red = paying for duplicate exposure.
+      </div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: 'visible' }}>
+        {edges.map((e, i) => {
+          if (e.ai < 0 || e.bi < 0 || !nodes[e.ai] || !nodes[e.bi]) return null;
+          const a = nodes[e.ai], b = nodes[e.bi];
+          const isH = hovered === i;
           return (
-            <button
-              key={f}
-              onClick={() => setSelectedFunds(prev =>
-                active ? prev.filter(x => x !== f) : [...prev, f]
+            <g key={i}>
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                stroke="transparent" strokeWidth={14} style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setHovered(i)}
+                onMouseLeave={() => setHovered(null)} />
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                stroke={edgeColor(e.pct)}
+                strokeWidth={isH ? 2.5 : e.pct > 35 ? 1.5 : 1}
+                strokeDasharray={e.pct < 20 ? '4 4' : 'none'}
+                strokeOpacity={isH ? 1 : 0.6}
+                style={{ transition: 'all 0.15s', pointerEvents: 'none' }} />
+              {isH && (
+                <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 9}
+                  textAnchor="middle" fontSize={11} fontWeight={700}
+                  fill={e.pct > 45 ? 'var(--red)' : 'var(--amber)'}
+                  style={{ pointerEvents: 'none' }}>
+                  {e.pct}% overlap
+                </text>
               )}
-              style={{
-                fontSize: 10, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
-                border: `0.5px solid ${active ? 'rgba(0,229,160,0.3)' : 'var(--glass-border)'}`,
-                fontWeight: 600,
-                background: active ? 'rgba(0,229,160,0.08)' : 'transparent',
-                color: active ? 'var(--green)' : 'var(--text3)',
-                fontFamily: 'inherit',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {shortName}
-            </button>
+            </g>
           );
         })}
-      </div>
-
-      {visibleFunds.length < 2 ? (
-        <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: 16 }}>
-          Select at least 2 funds to view the heatmap.
-        </div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'separate', borderSpacing: 2 }}>
-            <thead>
-              <tr>
-                <th style={{ width: labelW, minWidth: labelW }} />
-                {visibleFunds.map(f => (
-                  <th key={f} style={{
-                    width: cellSize, minWidth: cellSize, maxWidth: cellSize,
-                    fontSize: 9, color: 'var(--text3)', fontWeight: 600,
-                    textAlign: 'center', padding: '0 2px 6px',
-                  }}>
-                    <div style={{
-                      writingMode: 'vertical-rl', transform: 'rotate(180deg)',
-                      maxHeight: 80, overflow: 'hidden', textOverflow: 'ellipsis',
-                    }}>
-                      {f.length > 22 ? f.slice(0, 20) + '…' : f}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleFunds.map(rowFund => (
-                <tr key={rowFund}>
-                  <td style={{
-                    fontSize: 9, color: 'var(--text2)', fontWeight: 600, paddingRight: 8,
-                    maxWidth: labelW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {rowFund.length > 24 ? rowFund.slice(0, 22) + '…' : rowFund}
-                  </td>
-                  {visibleFunds.map(colFund => {
-                    const isSelf = rowFund === colFund;
-                    const pct = getOverlap(rowFund, colFund);
-                    return (
-                      <td key={colFund}>
-                        <div
-                          className="heatmap-cell"
-                          title={isSelf ? rowFund : `${rowFund} ↔ ${colFund}: ${pct}%`}
-                          style={{
-                            width: cellSize, height: cellSize,
-                            background: overlapColor(pct, isSelf),
-                            borderRadius: 5,
-                            fontSize: cellSize > 40 ? 10 : 8,
-                            color: pct > 40 ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)',
-                            fontWeight: 700,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          }}
-                        >
-                          {isSelf ? '—' : pct > 0 ? `${pct}%` : ''}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Legend */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-        <span style={{ fontSize: 10, color: 'var(--text3)' }}>Low overlap</span>
-        <div style={{
-          flex: 1, height: 6, borderRadius: 3,
-          background: 'linear-gradient(90deg, rgba(77,159,255,0.15), rgba(255,183,77,0.4), rgba(255,77,109,0.7))',
-          maxWidth: 120,
-        }} />
-        <span style={{ fontSize: 10, color: 'var(--text3)' }}>High overlap</span>
+        {nodes.map((nd, i) => {
+          const isActive = hovered !== null && edges.some((e, ei) => ei === hovered && (e.ai === i || e.bi === i));
+          return (
+            <g key={i}>
+              <circle cx={nd.x} cy={nd.y} r={20}
+                fill="var(--bg3)"
+                stroke={isActive ? 'var(--accent)' : 'var(--border2)'}
+                strokeWidth={isActive ? 1.5 : 1}
+                style={{ transition: 'stroke 0.15s' }} />
+              <text x={nd.x} y={nd.y - 2} textAnchor="middle" fontSize={9} fontWeight={700}
+                fill="var(--text)" style={{ pointerEvents: 'none' }}>
+                {nd.label.split(' ').map(w => w[0]).join('').slice(0, 3)}
+              </text>
+              <text x={nd.x} y={nd.y + 9} textAnchor="middle" fontSize={7.5}
+                fill="var(--text3)" style={{ pointerEvents: 'none' }}>
+                {nd.xirr?.toFixed(1)}%
+              </text>
+              <text x={nd.x} y={nd.y + 33} textAnchor="middle" fontSize={8.5}
+                fill="var(--text2)" fontWeight={500} style={{ pointerEvents: 'none' }}>
+                {nd.label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
+        {[
+          { c: 'var(--red)', l: '> 45% Critical' },
+          { c: 'var(--amber)', l: '25-45% Moderate' },
+          { c: 'var(--border2)', l: '< 25% Low' },
+        ].map(({ c, l }) => (
+          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--text3)' }}>
+            <div style={{ width: 16, height: 2, background: c, borderRadius: 1 }} />{l}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ── Command Palette ───────────────────────────────────────────────────────────
-function CommandPalette({ open, onClose, onNavigate, onAskAI }) {
+// ── Command Palette ────────────────────────────────────────────────────────────
+function CommandPalette({ open, onClose, onAsk }) {
   const [query, setQuery] = useState('');
-  const inputRef = useRef(null);
+  const inputRef = useRef();
 
-  const tabs = [
-    { id: 'xray',  label: 'X-Ray Analysis',   icon: '📊', hint: 'Ctrl+1' },
-    { id: 'fire',  label: 'FIRE Planner',      icon: '🔥', hint: 'Ctrl+2' },
-    { id: 'tax',   label: 'Tax Wizard',        icon: '💸', hint: 'Ctrl+3' },
-    { id: 'chat',  label: 'Ask AI',            icon: '💬', hint: 'Ctrl+4' },
+  const QUICK = [
+    { icon: BarChart3,  label: 'XIRR vs Nifty comparison',     hint: 'Returns',  q: 'How does my XIRR compare to Nifty?' },
+    { icon: X,          label: 'Which fund should I exit?',     hint: 'Overlap',  q: 'Which fund should I exit first?' },
+    { icon: Flame,      label: 'Can I retire at 50?',           hint: 'FIRE',     q: 'Can I retire at 50?' },
+    { icon: DollarSign, label: 'Best tax regime for me?',       hint: 'Tax',      q: 'Which tax regime saves me more?' },
+    { icon: TrendingUp, label: 'How much more SIP needed?',     hint: 'Planning', q: 'How much more SIP do I need monthly?' },
+    { icon: Shield,     label: 'Expense drag over 10 years',    hint: 'Cost',     q: 'How much is my expense drag costing me over 10 years?' },
   ];
 
+  const filtered = query.trim()
+    ? QUICK.filter(q => q.label.toLowerCase().includes(query.toLowerCase()))
+    : QUICK;
+
   useEffect(() => {
-    if (open) {
-      setQuery('');
-      setTimeout(() => inputRef.current?.focus(), 80);
-    }
+    if (open) { setQuery(''); setTimeout(() => inputRef.current?.focus(), 50); }
   }, [open]);
 
-  const filteredTabs = tabs.filter(t =>
-    !query || t.label.toLowerCase().includes(query.toLowerCase())
-  );
-  const isAiQuery = query.trim().length > 0 &&
-    !tabs.some(t => t.label.toLowerCase().includes(query.toLowerCase()));
+  useEffect(() => {
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Escape') onClose();
-    if (e.key === 'Enter') {
-      if (isAiQuery) { onAskAI(query.trim()); onClose(); }
-      else if (filteredTabs.length === 1) { onNavigate(filteredTabs[0].id); onClose(); }
-    }
-  };
+  const select = (q) => { onAsk(q); onClose(); };
 
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
-          className="cmd-overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
-          onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-        >
-          <motion.div
-            className="cmd-palette"
-            initial={{ opacity: 0, scale: 0.94, y: -12 }}
+        <motion.div className="cmd-overlay"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }} onClick={onClose}>
+          <motion.div className="cmd-palette"
+            initial={{ opacity: 0, scale: 0.95, y: -12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.94, y: -12 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {/* Input row */}
+            exit={{ opacity: 0, scale: 0.95, y: -8 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            onClick={e => e.stopPropagation()}>
             <div className="cmd-input-row">
-              <span style={{ fontSize: 18, color: 'var(--text3)' }}>⌘</span>
-              <input
-                ref={inputRef}
-                className="cmd-input"
-                type="text"
-                placeholder="Navigate or ask AI anything..."
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-              />
-              <span style={{
-                fontSize: 11, color: 'var(--text3)',
-                background: 'rgba(255,255,255,0.06)',
-                border: '0.5px solid var(--glass-border)',
-                borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
-              }}>ESC</span>
+              <Search size={16} style={{ color: 'var(--text3)', flexShrink: 0 }} />
+              <input ref={inputRef} className="cmd-input"
+                placeholder="Ask anything about your finances..."
+                value={query} onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && query.trim()) select(query.trim()); }} />
+              <kbd style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 7px', fontSize: 11, color: 'var(--text3)' }}>ESC</kbd>
             </div>
-
-            {/* Navigation items */}
-            {filteredTabs.length > 0 && (
-              <>
-                <div className="cmd-section-label">Navigate</div>
-                {filteredTabs.map(t => (
-                  <div
-                    key={t.id}
-                    className="cmd-item"
-                    onClick={() => { onNavigate(t.id); onClose(); }}
-                  >
-                    <div className="cmd-item-icon">{t.icon}</div>
-                    <div className="cmd-item-label">{t.label}</div>
-                    <div className="cmd-item-hint">{t.hint}</div>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {/* AI query mode */}
-            {isAiQuery && (
-              <>
-                <div className="cmd-section-label">Ask AI</div>
-                <div
-                  className="cmd-item"
-                  onClick={() => { onAskAI(query.trim()); onClose(); }}
-                >
-                  <div className="cmd-item-icon">✨</div>
-                  <div className="cmd-item-label">Ask: "{query}"</div>
-                  <div className="cmd-item-hint">↵ Enter</div>
+            <div className="cmd-section-label">Quick questions</div>
+            {filtered.map((item, i) => {
+              const Icon = item.icon;
+              return (
+                <div key={i} className="cmd-item" onClick={() => select(item.q)}>
+                  <div className="cmd-item-icon"><Icon size={15} /></div>
+                  <div className="cmd-item-label">{item.label}</div>
+                  <div className="cmd-item-hint">{item.hint}</div>
                 </div>
-              </>
+              );
+            })}
+            {filtered.length === 0 && query && (
+              <div className="cmd-item" onClick={() => select(query)}>
+                <div className="cmd-item-icon"><MessageCircle size={15} /></div>
+                <div className="cmd-item-label">Ask: "{query}"</div>
+                <div className="cmd-item-hint">Send</div>
+              </div>
             )}
-
-            {/* Footer */}
             <div className="cmd-footer">
-              <div className="cmd-kb"><kbd>↑ ↓</kbd> Navigate</div>
-              <div className="cmd-kb"><kbd>↵</kbd> Select</div>
-              <div className="cmd-kb"><kbd>ESC</kbd> Close</div>
+              <div className="cmd-kb"><kbd>Enter</kbd><span>to ask</span></div>
+              <div className="cmd-kb"><kbd>ESC</kbd><span>to close</span></div>
             </div>
           </motion.div>
         </motion.div>
@@ -321,92 +228,423 @@ function CommandPalette({ open, onClose, onNavigate, onAskAI }) {
   );
 }
 
-// ── X-Ray Tab ─────────────────────────────────────────────────────────────────
-function XRayTab({ xray }) {
-  const fr     = xray?.folio_returns || [];
-  const alloc  = Object.entries(xray?.allocation || {}).map(([name, value]) => ({ name, value }));
-  const COLORS  = ['#00e5a0','#4d9fff','#ffb74d','#a78bfa','#ff4d6d'];
+// ── Wealth Bleed Ticker ────────────────────────────────────────────────────────
+function WealthBleedTicker({ annualDrag }) {
+  const [elapsed, setElapsed] = useState(0);
+  const perSecond = (annualDrag || 0) / (365.25 * 24 * 3600);
+
+  useEffect(() => {
+    const t0 = Date.now();
+    const id = setInterval(() => setElapsed((Date.now() - t0) / 1000), 50);
+    return () => clearInterval(id);
+  }, []);
+
+  const bled = perSecond * elapsed;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Fund XIRR — full width */}
-      <div className="card">
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 16, color: 'var(--text)', letterSpacing: '0.01em' }}>
-          Fund-wise XIRR vs Nifty 50
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="bleed-ticker"
+      style={{
+        background: 'var(--red-dim)', border: '1px solid var(--red-border)',
+        borderRadius: 'var(--radius-lg)', padding: '16px 22px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 18, gap: 12,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <AlertTriangle size={16} style={{ color: 'var(--red)', flexShrink: 0 }} />
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+            Since you opened this page, your expense ratio has cost you
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+            {fmt.rupees(annualDrag)}/year in hidden fees across all funds
+          </div>
+        </div>
+      </div>
+      <div style={{
+        fontSize: 24, fontWeight: 700, color: 'var(--red)',
+        fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
+        minWidth: 85, textAlign: 'right',
+      }}>
+        ₹{bled.toFixed(2)}
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Portfolio Stress Test ──────────────────────────────────────────────────────
+function StressTestCard({ xray }) {
+  const totalValue = xray?.total_current_value || 0;
+  const equityPct = (xray?.allocation?.Equity || 0) / 100;
+  const overlapPairs = xray?.high_overlap_pairs?.length || 0;
+  const concentrationPenalty = Math.min(overlapPairs * 0.03, 0.12);
+  const betaEstimate = equityPct * (1 + concentrationPenalty);
+
+  const scenarios = [
+    { label: 'Nifty -10%', drop: 0.10 },
+    { label: 'Nifty -15%', drop: 0.15 },
+    { label: 'Nifty -25%', drop: 0.25 },
+  ];
+
+  return (
+    <RevealCard delay={0.1}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Zap size={14} style={{ color: 'var(--amber)' }} />
+        <div className="section-title">Portfolio Stress Test</div>
+      </div>
+      <div className="section-sub" style={{ marginBottom: 14 }}>
+        Estimated impact if the market corrects (beta: {betaEstimate.toFixed(2)}x)
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        {scenarios.map(({ label, drop }) => {
+          const portfolioDrop = drop * betaEstimate;
+          const loss = totalValue * portfolioDrop;
+          return (
+            <div key={label} style={{
+              background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)',
+              borderRadius: 12, padding: '16px 14px', textAlign: 'center',
+              transition: 'all 0.2s',
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 500, marginBottom: 6 }}>{label}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--red)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+                -{(portfolioDrop * 100).toFixed(0)}%
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
+                -{fmt.rupees(loss)} loss
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {overlapPairs > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 10 }}>
+          {overlapPairs} high-overlap pairs increase your concentration risk by ~{(concentrationPenalty * 100).toFixed(0)}%
+        </div>
+      )}
+    </RevealCard>
+  );
+}
+
+// ── What-If Life Event Simulator ───────────────────────────────────────────────
+function WhatIfSimulator({ fire }) {
+  const [event, setEvent] = useState(null);
+  const [amount, setAmount] = useState('');
+
+  const events = [
+    { id: 'bonus', label: 'Got a Bonus', icon: Gift, defaultAmt: 500000 },
+    { id: 'marriage', label: 'Getting Married', icon: Heart, defaultAmt: 1500000 },
+    { id: 'baby', label: 'New Baby', icon: Baby, defaultAmt: 0 },
+    { id: 'job', label: 'Job Switch', icon: Briefcase, defaultAmt: 0 },
+  ];
+
+  const amt = Number(amount) || 0;
+  const need = fire?.corpus_needed || 0;
+  const projected = fire?.projected_corpus || 0;
+  const investable = fire?.current_investable || 0;
+  const yrs = fire?.years_to_retire || 23;
+
+  let newProjected = projected;
+  let description = '';
+
+  if (event === 'bonus' && amt > 0) {
+    const invested = amt * 0.7;
+    newProjected = projected + invested * Math.pow(1.12, yrs);
+    description = `Invest 70% (${fmt.rupees(invested)}) of your bonus. Projected corpus increases by ${fmt.rupees(newProjected - projected)}.`;
+  } else if (event === 'marriage' && amt > 0) {
+    const spent = amt;
+    const reducedCorpus = Math.max(0, (fire?.corpus_breakdown?.existing || 0) - spent);
+    newProjected = reducedCorpus * Math.pow(1.12, yrs) + (projected - (fire?.corpus_breakdown?.existing || 0) * Math.pow(1.12, yrs));
+    newProjected = Math.max(0, newProjected);
+    description = `Wedding expense of ${fmt.rupees(spent)} reduces your projected corpus by ${fmt.rupees(Math.max(0, projected - newProjected))}.`;
+  } else if (event === 'baby') {
+    const extraExpense = 15000;
+    const sipReduction = extraExpense * 12 * ((Math.pow(1.12, yrs) - 1) / 0.12);
+    newProjected = Math.max(0, projected - sipReduction);
+    description = `Additional ~₹15K/mo expenses reduce investable surplus. Corpus impact: -${fmt.rupees(Math.max(0, projected - newProjected))}.`;
+  } else if (event === 'job' && amt > 0) {
+    const newSip = amt * 0.5;
+    const sipGain = newSip * 12 * ((Math.pow(1.12, yrs) - 1) / 0.12);
+    newProjected = projected + sipGain;
+    description = `Investing 50% of your raise (${fmt.rupees(newSip)}/mo) adds ${fmt.rupees(sipGain)} to projected corpus.`;
+  }
+
+  const newReadiness = need > 0 ? Math.min(100, Math.round(newProjected / need * 100)) : 0;
+  const oldReadiness = fire?.readiness_score || 0;
+
+  return (
+    <RevealCard delay={0.15}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Zap size={14} style={{ color: 'var(--accent)' }} />
+        <div className="section-title">What-If Simulator</div>
+      </div>
+      <div className="section-sub" style={{ marginBottom: 14 }}>
+        How would a life event change your financial plan?
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+        {events.map(ev => {
+          const Icon = ev.icon;
+          const active = event === ev.id;
+          return (
+            <motion.div key={ev.id} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              onClick={() => { setEvent(active ? null : ev.id); setAmount(ev.defaultAmt || ''); }}
+              style={{
+                padding: '12px 8px', borderRadius: 10, textAlign: 'center', cursor: 'pointer',
+                background: active ? 'var(--accent-dim)' : 'rgba(255,255,255,0.02)',
+                border: `1px solid ${active ? 'var(--accent-border)' : 'var(--border)'}`,
+                transition: 'all 0.2s',
+              }}>
+              <Icon size={16} style={{ color: active ? 'var(--accent)' : 'var(--text3)', margin: '0 auto 4px' }} />
+              <div style={{ fontSize: 11, fontWeight: 500, color: active ? 'var(--accent)' : 'var(--text2)' }}>{ev.label}</div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {event && (
+          <motion.div key={event} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25 }} style={{ overflow: 'hidden' }}>
+            {(event === 'bonus' || event === 'marriage' || event === 'job') && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11 }}>
+                  {event === 'bonus' ? 'Bonus amount' : event === 'marriage' ? 'Wedding budget' : 'Monthly salary increase'}
+                </label>
+                <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                  placeholder={event === 'job' ? 'e.g. 30000' : 'e.g. 500000'}
+                  style={{ marginTop: 4 }} />
+              </div>
+            )}
+            {description && (
+              <div style={{
+                padding: '14px 16px', borderRadius: 10,
+                background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', marginBottom: 12,
+              }}>
+                <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 10 }}>{description}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Readiness</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: newReadiness >= oldReadiness ? 'var(--green)' : 'var(--red)' }}>
+                      {newReadiness}<span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text3)' }}>/100</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: newReadiness >= oldReadiness ? 'var(--green)' : 'var(--red)' }}>
+                      {newReadiness >= oldReadiness ? '+' : ''}{newReadiness - oldReadiness} pts
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>New Corpus</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: newProjected >= projected ? 'var(--green)' : 'var(--red)' }}>
+                      {fmt.rupees(newProjected)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Gap</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: newProjected >= need ? 'var(--green)' : 'var(--red)' }}>
+                      {newProjected >= need ? 'None' : fmt.rupees(need - newProjected)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </RevealCard>
+  );
+}
+
+// ── Benchmark Timeline ────────────────────────────────────────────────────────
+function BenchmarkTimeline({ timeline = [] }) {
+  if (!timeline.length) return null;
+  const every = Math.max(1, Math.floor(timeline.length / 8));
+  return (
+    <RevealCard delay={0.08}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <LineChart size={14} style={{ color: 'var(--accent)' }} />
+        <div className="section-title">Portfolio vs Nifty 50 Growth</div>
+      </div>
+      <div className="section-sub" style={{ marginBottom: 16 }}>
+        Your actual portfolio growth compared to if you had invested the same amounts in Nifty 50
+      </div>
+      <ResponsiveContainer width="100%" height={260}>
+        <RLineChart data={timeline} margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
+          <defs>
+            <linearGradient id="actualLine" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#818cf8" />
+              <stop offset="100%" stopColor="#06b6d4" />
+            </linearGradient>
+          </defs>
+          <XAxis dataKey="month" tick={{ fontSize: 9.5, fill: 'var(--text3)' }} interval={every} />
+          <YAxis tick={{ fontSize: 10, fill: 'var(--text3)' }} tickFormatter={v => fmt.rupees(v)} width={60} />
+          <Tooltip content={<ChartTooltip />} />
+          <Legend
+            wrapperStyle={{ fontSize: 11, color: 'var(--text2)' }}
+            formatter={(value) => <span style={{ color: 'var(--text2)', fontSize: 11 }}>{value}</span>}
+          />
+          <Line type="monotone" dataKey="invested" name="Invested" stroke="var(--text3)" strokeWidth={1.5} strokeDasharray="5 3" dot={false} />
+          <Line type="monotone" dataKey="nifty" name="Nifty 50" stroke="#fbbf24" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="actual" name="Your Portfolio" stroke="url(#actualLine)" strokeWidth={2.5} dot={false} />
+        </RLineChart>
+      </ResponsiveContainer>
+    </RevealCard>
+  );
+}
+
+// ── Regulatory News Feed ──────────────────────────────────────────────────────
+function RegulatoryNewsFeed() {
+  const updates = [
+    {
+      date: 'Mar 2026',
+      source: 'SEBI',
+      title: 'New flexi-cap allocation norms',
+      impact: 'Flexi-cap funds must now hold min 65% in equity across large/mid/small caps. Your flexi-cap funds may rebalance — check if this changes your overlap.',
+      severity: 'moderate',
+    },
+    {
+      date: 'Feb 2026',
+      source: 'RBI',
+      title: 'Repo rate held at 6.25%',
+      impact: 'Stable rates favor equity over debt. Your current equity-heavy allocation is well-positioned. No action needed on debt funds.',
+      severity: 'low',
+    },
+    {
+      date: 'Feb 2026',
+      source: 'Income Tax',
+      title: 'New Tax Regime: Sec 87A rebate raised to ₹12L',
+      impact: 'If your taxable income is under ₹12L, the new regime is now more attractive. Re-evaluate your Old vs New regime choice on the Tax tab.',
+      severity: 'high',
+    },
+    {
+      date: 'Jan 2026',
+      source: 'SEBI',
+      title: 'ELSS lock-in reduced to 2 years (proposed)',
+      impact: 'If approved, your ELSS investments will be available sooner. Consider ELSS over PPF for 80C if you need liquidity.',
+      severity: 'moderate',
+    },
+  ];
+
+  return (
+    <RevealCard delay={0.2}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Newspaper size={14} style={{ color: 'var(--accent)' }} />
+        <div className="section-title">Regulatory Impact Feed</div>
+      </div>
+      <div className="section-sub" style={{ marginBottom: 14 }}>
+        Recent SEBI / RBI / Tax changes and what they mean for <em>your</em> portfolio
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {updates.map((u, i) => {
+          const borderColor = u.severity === 'high' ? 'var(--red-border)' : u.severity === 'moderate' ? 'var(--amber-border)' : 'var(--border)';
+          const bgColor = u.severity === 'high' ? 'var(--red-dim)' : u.severity === 'moderate' ? 'var(--amber-dim)' : 'rgba(255,255,255,0.02)';
+          const tagColor = u.severity === 'high' ? 'var(--red)' : u.severity === 'moderate' ? 'var(--amber)' : 'var(--green)';
+          return (
+            <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
+              style={{
+                padding: '14px 16px', borderRadius: 12, background: bgColor, border: `1px solid ${borderColor}`,
+                borderLeft: `3px solid ${tagColor}`,
+              }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: tagColor, background: `${tagColor}15`, padding: '2px 8px', borderRadius: 100 }}>{u.source}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{u.title}</span>
+                </div>
+                <span style={{ fontSize: 10, color: 'var(--text3)' }}>{u.date}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.6 }}>{u.impact}</div>
+            </motion.div>
+          );
+        })}
+      </div>
+    </RevealCard>
+  );
+}
+
+// ── X-Ray Tab ─────────────────────────────────────────────────────────────────
+function XRayTab({ xray }) {
+  const fr = xray?.folio_returns || [];
+  const alloc = Object.entries(xray?.allocation || {}).map(([name, value]) => ({ name, value }));
+  const nifty = xray?.nifty_3y_pct || 0;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <WealthBleedTicker annualDrag={xray?.annual_expense_drag} />
+
+      <RevealCard>
+        <div className="section-title">Fund-wise XIRR vs Nifty 50</div>
+        <div className="section-sub" style={{ marginBottom: 16 }}>
+          Nifty benchmark: {nifty}% — green beats it, red trails it
         </div>
         <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={fr} margin={{ top: 10, right: 10, bottom: 60, left: 0 }}>
-            <XAxis dataKey="scheme_name" tick={{ fontSize: 9, fill: 'var(--text3)', fontFamily: 'Plus Jakarta Sans' }}
-              angle={-30} textAnchor="end" interval={0} />
-            <YAxis tick={{ fontSize: 9, fill: 'var(--text3)', fontFamily: 'Plus Jakarta Sans' }} unit="%" />
-            <Tooltip content={<GlassTooltip />} />
-            <Bar dataKey="xirr_pct" name="XIRR %" radius={[5,5,0,0]}>
+          <BarChart data={fr} margin={{ top: 10, right: 10, bottom: 64, left: 0 }}>
+            <XAxis dataKey="scheme_name"
+              tick={{ fontSize: 9.5, fill: 'var(--text3)', fontFamily: 'Inter' }}
+              angle={-32} textAnchor="end" interval={0} />
+            <YAxis tick={{ fontSize: 10, fill: 'var(--text3)' }} unit="%" width={32} />
+            <Tooltip content={<ChartTooltip />} />
+            <Bar dataKey="xirr_pct" name="XIRR %" radius={[5, 5, 0, 0]} maxBarSize={48}>
               {fr.map((f, i) => (
-                <Cell key={i} fill={f.xirr_pct >= xray.nifty_3y_pct ? '#00e5a0' : '#ff4d6d'} fillOpacity={0.85} />
+                <Cell key={i} fill={f.xirr_pct >= nifty ? '#34d399' : '#f87171'} fillOpacity={0.85} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-        <div style={{ fontSize: 10, color: 'var(--text3)', textAlign: 'center', marginTop: 6 }}>
-          Nifty 50 benchmark: {xray?.nifty_3y_pct}% — <span style={{ color: 'var(--green)' }}>green</span> bars beat it, <span style={{ color: 'var(--red)' }}>red</span> bars trail
-        </div>
-      </div>
+      </RevealCard>
 
-      {/* 2-col: Allocation + Heatmap */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        {/* Asset Allocation */}
-        <div className="card">
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 14 }}>Asset Allocation</div>
+        <RevealCard delay={0.05}>
+          <div className="section-title" style={{ marginBottom: 14 }}>Asset Allocation</div>
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
-              <Pie data={alloc} cx="50%" cy="50%" innerRadius={42} outerRadius={68}
+              <Pie data={alloc} cx="50%" cy="50%" innerRadius={46} outerRadius={68}
                 dataKey="value" nameKey="name" paddingAngle={3}>
-                {alloc.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} fillOpacity={0.9} />)}
+                {alloc.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.85} />)}
               </Pie>
-              <Tooltip content={<GlassTooltip />} formatter={(v) => fmt.rupees(v)} />
+              <Tooltip formatter={v => fmt.rupees(v)} />
             </PieChart>
           </ResponsiveContainer>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
             {alloc.map((a, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text2)' }}>
-                <div style={{ width: 7, height: 7, borderRadius: 2, background: COLORS[i % COLORS.length] }} />
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text2)' }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length] }} />
                 {a.name}: {a.value}%
               </div>
             ))}
           </div>
-        </div>
+        </RevealCard>
 
-        {/* Heatmap */}
-        <div className="card" style={{ overflowX: 'auto' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 14 }}>Fund Overlap Heatmap</div>
-          <HeatmapMatrix pairs={xray?.high_overlap_pairs || []} />
-        </div>
+        <RevealCard delay={0.1} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div className="section-title" style={{ marginBottom: 12 }}>Expense Drag</div>
+            <div className="stat-label" style={{ marginBottom: 4 }}>Annual bleed</div>
+            <div className="stat-value" style={{ color: 'var(--amber)' }}>
+              {fmt.rupees(xray?.annual_expense_drag)}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+              10-yr cost: <span style={{ color: 'var(--red)', fontWeight: 600 }}>{fmt.rupees(xray?.expense_drag_10y)}</span>
+            </div>
+          </div>
+          <div style={{ marginTop: 16, padding: '10px 14px', borderRadius: 10, background: 'var(--green-dim)', border: '1px solid var(--green-border)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.6 }}>
+              Switch to direct plans and save{' '}
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>{fmt.rupees((xray?.annual_expense_drag || 0) * 0.4)}/yr</span>
+            </div>
+          </div>
+        </RevealCard>
       </div>
 
-      {/* Expense drag */}
-      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 4, fontWeight: 700 }}>
-            Annual Expense Drag
-          </div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--amber)', letterSpacing: '-0.02em' }}>
-            {fmt.rupees(xray?.annual_expense_drag)}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
-            10-year compounding cost: {fmt.rupees(xray?.expense_drag_10y)}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>Switching to direct plans saves ~40%</div>
-          <div style={{
-            fontSize: 18, fontWeight: 700, color: 'var(--green)',
-            background: 'var(--green-dim)', padding: '6px 14px', borderRadius: 10,
-            border: '0.5px solid rgba(0,229,160,0.2)',
-          }}>
-            + {fmt.rupees((xray?.annual_expense_drag || 0) * 0.4)}/yr
-          </div>
-        </div>
-      </div>
+      <BenchmarkTimeline timeline={xray?.growth_timeline} />
+
+      <RevealCard delay={0.15}>
+        <OverlapNetworkGraph folios={fr} overlapMatrix={xray?.overlap_matrix || []} />
+      </RevealCard>
+
+      <StressTestCard xray={xray} />
+
+      <RegulatoryNewsFeed />
     </div>
   );
 }
@@ -423,389 +661,446 @@ function FireTab({ fire }) {
     adjusted: Math.round(p.corpus + (extraSip * 12 * ((1.12 ** i - 1) / 0.12))),
   }));
 
-  const sliderPct = (extraSip / 50000) * 100;
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Retirement readiness card */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 4, fontWeight: 700 }}>
-              Retirement Readiness
-            </div>
-            <div style={{ fontSize: 38, fontWeight: 800, color: scoreColor(fire?.readiness_score || 0), letterSpacing: '-0.03em', lineHeight: 1 }}>
-              {fire?.readiness_score}
-              <span style={{ fontSize: 18, color: 'var(--text3)', fontWeight: 500 }}>/100</span>
-            </div>
-            <div style={{ fontSize: 12, color: fire?.is_on_track ? 'var(--green)' : 'var(--red)', marginTop: 6, fontWeight: 600 }}>
-              {fire?.is_on_track ? '✓ On track for retirement' : '✗ Needs attention'}
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {[
-              ['Corpus Needed', fmt.rupees(need)],
-              ['Projected', fmt.rupees(base)],
-              ['Gap', fmt.rupees(fire?.corpus_gap)],
-              ['Retire At', `${fire?.retirement_age} yrs`],
-            ].map(([l, v]) => (
-              <div key={l} style={{
-                background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 14px',
-                border: '0.5px solid var(--glass-border)',
-              }}>
-                <div style={{ fontSize: 9, color: 'var(--text3)', marginBottom: 3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{l}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{v}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Slider */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>
-            <span style={{ fontWeight: 600 }}>Additional monthly SIP</span>
-            <span style={{ color: 'var(--green)', fontWeight: 800 }}>+{fmt.rupees(extraSip)}/mo</span>
-          </div>
-          <div style={{ position: 'relative' }}>
-            <div style={{
-              position: 'absolute', top: '50%', left: 0, transform: 'translateY(-50%)',
-              height: 4, width: `${sliderPct}%`,
-              background: 'linear-gradient(90deg, var(--green), #00c47a)',
-              borderRadius: 4, pointerEvents: 'none', zIndex: 1,
-              boxShadow: '0 0 8px rgba(0,229,160,0.4)',
-            }} />
-            <input
-              type="range" min={0} max={50000} step={1000} value={extraSip}
-              onChange={e => setExtraSip(Number(e.target.value))}
-              style={{ width: '100%', position: 'relative', zIndex: 2 }}
-            />
-          </div>
-        </div>
-
-        {/* Area chart — animates on SIP change */}
-        <motion.div layout transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}>
-          <ResponsiveContainer width="100%" height={210}>
-            <AreaChart data={adjustedProj}>
-              <defs>
-                <linearGradient id="corpusGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#4d9fff" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#4d9fff" stopOpacity={0.02} />
-                </linearGradient>
-                <linearGradient id="adjustedGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#00e5a0" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#00e5a0" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="age" tick={{ fontSize: 9, fill: 'var(--text3)', fontFamily: 'Plus Jakarta Sans' }} />
-              <YAxis tick={{ fontSize: 9, fill: 'var(--text3)', fontFamily: 'Plus Jakarta Sans' }} tickFormatter={v => fmt.rupees(v)} width={64} />
-              <Tooltip content={<GlassTooltip />} />
-              <Area type="monotone" dataKey="corpus" name="Current projection"
-                stroke="#4d9fff" fill="url(#corpusGrad)" strokeWidth={2}
-                isAnimationActive={true} animationDuration={600} animationEasing="ease-out" />
-              {extraSip > 0 && (
-                <Area type="monotone" dataKey="adjusted" name="With extra SIP"
-                  stroke="#00e5a0" fill="url(#adjustedGrad)" strokeWidth={2}
-                  isAnimationActive={true} animationDuration={600} animationEasing="ease-out" />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        </motion.div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+        {[
+          { label: 'Readiness', value: `${fire?.readiness_score}/100`, color: scoreColor(fire?.readiness_score || 0) },
+          { label: 'Corpus Needed', value: fmt.rupees(need) },
+          { label: 'Projected', value: fmt.rupees(base), color: base >= need ? 'var(--green)' : 'var(--red)' },
+          { label: 'Gap SIP', value: fmt.rupees(fire?.extra_sip_needed), color: 'var(--amber)' },
+        ].map(({ label, value, color }, idx) => (
+          <RevealCard key={label} delay={idx * 0.05} style={{ textAlign: 'center', padding: '20px 14px' }}>
+            <div className="stat-label" style={{ marginBottom: 8 }}>{label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: color || 'var(--text)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+          </RevealCard>
+        ))}
       </div>
 
-      {/* Goal SIPs */}
-      <div className="card">
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 14 }}>Goal-wise SIP Required</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <RevealCard delay={0.1}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div className="section-title" style={{ marginBottom: 2 }}>Retirement Corpus Projection</div>
+            <div style={{ fontSize: 12, color: fire?.is_on_track ? 'var(--green)' : 'var(--red)', fontWeight: 500 }}>
+              {fire?.is_on_track ? 'On track' : 'Shortfall'} — retire at {fire?.retirement_age}
+            </div>
+          </div>
+          {extraSip > 0 && (
+            <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>+{fmt.rupees(extraSip)}/mo</div>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>Extra SIP</span>
+          <input type="range" min={0} max={50000} step={1000} value={extraSip}
+            onChange={e => setExtraSip(Number(e.target.value))} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', minWidth: 50, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.rupees(extraSip)}</span>
+        </div>
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart data={adjustedProj}>
+            <defs>
+              <linearGradient id="areaBlue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.15} />
+                <stop offset="100%" stopColor="#60a5fa" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="areaIndigo" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#818cf8" stopOpacity={0.15} />
+                <stop offset="100%" stopColor="#818cf8" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="age" tick={{ fontSize: 10, fill: 'var(--text3)' }} />
+            <YAxis tick={{ fontSize: 10, fill: 'var(--text3)' }} tickFormatter={v => fmt.rupees(v)} width={56} />
+            <Tooltip content={<ChartTooltip />} />
+            <Area type="monotone" dataKey="corpus" name="Current" stroke="#60a5fa" fill="url(#areaBlue)" strokeWidth={2} />
+            {extraSip > 0 && <Area type="monotone" dataKey="adjusted" name="With extra SIP" stroke="#818cf8" fill="url(#areaIndigo)" strokeWidth={2} />}
+          </AreaChart>
+        </ResponsiveContainer>
+      </RevealCard>
+
+      <RevealCard delay={0.15}>
+        <div className="section-title" style={{ marginBottom: 14 }}>Goal-wise SIP Required</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {(fire?.goal_sips || []).map((g, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.06, duration: 0.35 }}
+            <motion.div key={i} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 16px',
-                background: 'rgba(255,255,255,0.02)',
-                borderRadius: 12,
-                border: '0.5px solid var(--glass-border)',
-              }}
-            >
+                padding: '14px 18px', background: 'rgba(255,255,255,0.02)',
+                border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)',
+                borderRadius: 12, transition: 'all 0.2s',
+              }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{g.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text3)' }}>
-                  Target: {fmt.rupees(g.inflation_target)} by {g.years}yr · {g.asset} funds
-                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{g.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{fmt.rupees(g.inflation_target)} in {g.years}yr · {g.asset}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--green)', letterSpacing: '-0.02em' }}>
-                  {fmt.rupees(g.sip_needed)}
-                </div>
-                <div style={{ fontSize: 9, color: 'var(--text3)', fontWeight: 600 }}>per month</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--green)', letterSpacing: '-0.02em' }}>{fmt.rupees(g.sip_needed)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text3)' }}>per month</div>
               </div>
             </motion.div>
           ))}
         </div>
-      </div>
+      </RevealCard>
 
-      {/* Savings snapshot */}
-      <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
         {[
           ['Savings Rate', `${fire?.savings_rate_pct}%`, fire?.savings_rate_pct > 30 ? 'var(--green)' : 'var(--amber)'],
           ['Monthly Investable', fmt.rupees(fire?.current_investable), 'var(--text)'],
           ['Emergency Fund', fmt.rupees(fire?.emergency_fund_target), 'var(--text)'],
-        ].map(([l, v, c]) => (
-          <div key={l} style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 6, fontWeight: 700 }}>{l}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: c, letterSpacing: '-0.02em' }}>{v}</div>
-          </div>
+        ].map(([l, v, c], idx) => (
+          <RevealCard key={l} delay={idx * 0.05} style={{ textAlign: 'center' }}>
+            <div className="stat-label" style={{ marginBottom: 8 }}>{l}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: c, letterSpacing: '-0.02em' }}>{v}</div>
+          </RevealCard>
         ))}
       </div>
+
+      <WhatIfSimulator fire={fire} />
     </div>
   );
 }
 
 // ── Tax Tab ───────────────────────────────────────────────────────────────────
 function TaxTab({ tax }) {
-  const gaps   = tax?.deduction_gaps || [];
+  const gaps = tax?.deduction_gaps || [];
   const winner = tax?.recommended;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="card">
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 18 }}>Regime Comparison</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-          {['Old regime', 'New regime'].map(r => {
-            const isWinner = r === winner;
-            const taxAmt   = r === 'Old regime' ? tax?.old_regime_tax   : tax?.new_regime_tax;
-            const effRate  = r === 'Old regime' ? tax?.old_effective_pct : tax?.new_effective_pct;
-            return (
-              <motion.div
-                key={r}
-                whileHover={{ scale: 1.02 }}
-                style={{
-                  padding: '18px 20px', borderRadius: 14,
-                  border: `0.5px solid ${isWinner ? 'rgba(0,229,160,0.35)' : 'var(--glass-border)'}`,
-                  background: isWinner ? 'rgba(0,229,160,0.07)' : 'rgba(255,255,255,0.02)',
-                  position: 'relative',
-                  backdropFilter: 'blur(20px)',
-                  boxShadow: isWinner ? '0 0 24px rgba(0,229,160,0.12)' : 'none',
-                }}
-              >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {['Old regime', 'New regime'].map((r, idx) => {
+          const isWinner = r === winner;
+          const taxAmt = r === 'Old regime' ? tax?.old_regime_tax : tax?.new_regime_tax;
+          const effRate = r === 'Old regime' ? tax?.old_effective_pct : tax?.new_effective_pct;
+          return (
+            <RevealCard key={r} delay={idx * 0.06}
+              style={{
+                padding: '24px 26px', position: 'relative',
+                borderColor: isWinner ? 'var(--green-border)' : undefined,
+                background: isWinner ? 'var(--green-dim)' : undefined,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 13, color: 'var(--text2)', fontWeight: 600 }}>{r}</span>
                 {isWinner && (
-                  <div style={{
-                    position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)',
-                    background: 'var(--green)', color: '#030b06', fontSize: 9, fontWeight: 800,
-                    padding: '3px 12px', borderRadius: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
-                    whiteSpace: 'nowrap',
-                  }}>Recommended</div>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, color: 'var(--green)',
+                    background: 'var(--green-dim)', border: '1px solid var(--green-border)',
+                    padding: '3px 10px', borderRadius: 100,
+                  }}>
+                    Recommended
+                  </span>
                 )}
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 5, fontWeight: 600 }}>{r}</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: isWinner ? 'var(--green)' : 'var(--text)', letterSpacing: '-0.02em' }}>
-                  {fmt.rupees(taxAmt)}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>Effective rate: {effRate}%</div>
-              </motion.div>
-            );
-          })}
-        </div>
-        <div style={{
-          background: 'rgba(0,229,160,0.06)', border: '0.5px solid rgba(0,229,160,0.2)',
-          borderRadius: 12, padding: '14px 18px', textAlign: 'center',
-        }}>
-          <span style={{ fontSize: 13, color: 'var(--text2)' }}>Switch to {winner} and save </span>
-          <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--green)', letterSpacing: '-0.02em' }}>{fmt.rupees(tax?.annual_saving)}/year</span>
-          <span style={{ fontSize: 13, color: 'var(--text2)' }}> — that's </span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--green)' }}>{fmt.rupees(tax?.monthly_saving)}/month</span>
-          <span style={{ fontSize: 13, color: 'var(--text2)' }}> more in your pocket</span>
-        </div>
+              </div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: isWinner ? 'var(--green)' : 'var(--text)', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
+                {fmt.rupees(taxAmt)}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+                Effective: <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{effRate}%</span>
+              </div>
+            </RevealCard>
+          );
+        })}
       </div>
 
+      <RevealCard delay={0.08} style={{
+        background: 'var(--green-dim)', border: '1px solid var(--green-border)',
+        borderRadius: 'var(--radius-lg)', padding: '18px 22px', textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 4 }}>Switch to {winner} and save</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--green)', letterSpacing: '-0.02em' }}>
+          {fmt.rupees(tax?.annual_saving)}<span style={{ fontSize: 13, fontWeight: 500 }}>/year</span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
+          {fmt.rupees(tax?.monthly_saving)} extra in-hand every month
+        </div>
+      </RevealCard>
+
       {gaps.length > 0 && (
-        <div className="card">
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 14 }}>Deductions You're Missing</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <RevealCard delay={0.12}>
+          <div className="section-title" style={{ marginBottom: 14 }}>Deductions You're Missing</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {gaps.map((g, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.07 }}
+              <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
                 style={{
-                  display: 'flex', gap: 14, padding: '14px 16px',
-                  background: 'rgba(255,183,77,0.05)', border: '0.5px solid rgba(255,183,77,0.2)',
-                  borderRadius: 12,
-                }}
-              >
-                <div style={{ fontSize: 22, flexShrink: 0 }}>💡</div>
+                  display: 'flex', gap: 14, padding: '16px 18px',
+                  background: 'var(--amber-dim)', border: '1px solid var(--amber-border)', borderRadius: 12,
+                }}>
+                <Lightbulb size={18} style={{ color: 'var(--amber)', flexShrink: 0, marginTop: 2 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Section {g.section}</span>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--amber)' }}>Save {fmt.rupees(g.tax_saving)} in tax</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>Section {g.section}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--amber)' }}>Save {fmt.rupees(g.tax_saving)}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 6 }}>Unused deduction: {fmt.rupees(g.gap)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.5 }}>{g.action}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Unused: {fmt.rupees(g.gap)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.6 }}>{g.action}</div>
                 </div>
               </motion.div>
             ))}
           </div>
           <div style={{
-            marginTop: 14, padding: '10px 16px',
-            background: 'var(--red-dim)', border: '0.5px solid rgba(255,77,109,0.2)',
+            marginTop: 12, padding: '12px 16px',
+            background: 'var(--red-dim)', border: '1px solid var(--red-border)',
             borderRadius: 10, fontSize: 13, color: 'var(--text2)', textAlign: 'center',
           }}>
-            Total missed savings: <strong style={{ color: 'var(--red)' }}>{fmt.rupees(tax?.total_gap_saving)}</strong>
+            Total missed: <strong style={{ color: 'var(--red)', fontWeight: 700 }}>{fmt.rupees(tax?.total_gap_saving)}</strong> in tax savings
           </div>
-        </div>
+        </RevealCard>
       )}
     </div>
   );
 }
 
+// ── Voice Input Hook ──────────────────────────────────────────────────────────
+function useVoiceInput(onTranscript) {
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(false);
+  const [interim, setInterim] = useState('');
+  const recognitionRef = useRef(null);
+  const callbackRef = useRef(onTranscript);
+  const activeRef = useRef(false);
+  callbackRef.current = onTranscript;
+
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    setSupported(true);
+    const recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-IN';
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (e) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (result.isFinal) {
+          finalText += result[0].transcript;
+        } else {
+          interimText += result[0].transcript;
+        }
+      }
+      setInterim(interimText);
+      if (finalText) {
+        activeRef.current = false;
+        setInterim('');
+        setListening(false);
+        callbackRef.current(finalText.trim());
+        try { recognition.stop(); } catch {}
+      }
+    };
+
+    recognition.onerror = (e) => {
+      if (e.error === 'no-speech' || e.error === 'aborted') {
+        if (activeRef.current) {
+          try { recognition.stop(); } catch {}
+        }
+        return;
+      }
+      console.warn('Speech recognition error:', e.error);
+      activeRef.current = false;
+      setListening(false);
+      setInterim('');
+    };
+
+    recognition.onend = () => {
+      if (activeRef.current) {
+        try { recognition.start(); return; } catch {}
+      }
+      activeRef.current = false;
+      setListening(false);
+      setInterim('');
+    };
+
+    recognitionRef.current = recognition;
+    return () => {
+      activeRef.current = false;
+      try { recognition.abort(); } catch {}
+    };
+  }, []);
+
+  const toggle = useCallback(() => {
+    const rec = recognitionRef.current;
+    if (!rec) return;
+    if (activeRef.current) {
+      activeRef.current = false;
+      try { rec.stop(); } catch {}
+      setListening(false);
+      setInterim('');
+    } else {
+      activeRef.current = true;
+      try { rec.start(); setListening(true); }
+      catch { activeRef.current = false; setListening(false); }
+    }
+  }, []);
+
+  return { listening, supported, toggle, interim };
+}
+
 // ── Chat Tab ──────────────────────────────────────────────────────────────────
-function ChatTab({ data, prefillQuestion, onPrefillConsumed }) {
+function ChatTab({ data, onOpenPalette, externalQuestion, onExternalHandled }) {
   const [msgs, setMsgs] = useState([{
     role: 'assistant',
-    text: `Hi! I'm FinMentor AI. I've analysed ${data.investor_name}'s complete financial picture. Ask me anything — I'll answer using your actual numbers.`,
+    text: `Hi! I've analysed ${data.investor_name}'s complete financial picture. Ask me anything about your portfolio, retirement, or taxes. You can also use the microphone to speak your questions.`,
   }]);
-  const [input, setInput]   = useState('');
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const bottomRef = useRef(null);
-
-  const QUICK = [
-    'Can I retire at 50?',
-    'Which fund should I exit?',
-    'How much more SIP do I need?',
-    'Should I switch to direct plans?',
-    'How much tax will NPS save me?',
-    'Am I over-diversified?',
-  ];
+  const bottomRef = useRef();
 
   const context = {
+    investor_name: data.investor_name,
     portfolio_xirr: data.xray?.portfolio_xirr_pct,
+    alpha_pct: data.xray?.alpha_pct,
     nifty_benchmark: data.xray?.nifty_3y_pct,
     total_value: data.xray?.total_current_value,
     total_invested: data.xray?.total_invested,
+    absolute_gain: data.xray?.absolute_gain,
+    absolute_gain_pct: data.xray?.absolute_gain_pct,
+    folio_returns: data.xray?.folio_returns,
     high_overlap_pairs: data.xray?.high_overlap_pairs,
     annual_expense_drag: data.xray?.annual_expense_drag,
+    ten_year_drag: data.xray?.ten_year_drag,
     retirement_readiness: data.fire?.readiness_score,
+    is_on_track: data.fire?.is_on_track,
     corpus_needed: data.fire?.corpus_needed,
     projected_corpus: data.fire?.projected_corpus,
-    is_on_track: data.fire?.is_on_track,
+    corpus_gap: data.fire?.corpus_gap,
     extra_sip_needed: data.fire?.extra_sip_needed,
+    savings_rate_pct: data.fire?.savings_rate_pct,
+    fire_age: data.fire?.fire_age,
     goal_sips: data.fire?.goal_sips,
+    emergency_fund_target: data.fire?.emergency_fund_target,
+    old_regime_tax: data.tax?.old_regime_tax,
+    new_regime_tax: data.tax?.new_regime_tax,
     tax_recommended: data.tax?.recommended,
     tax_saving: data.tax?.annual_saving,
     deduction_gaps: data.tax?.deduction_gaps,
-    investor_name: data.investor_name,
+    total_gap_saving: data.tax?.total_gap_saving,
+    gross_salary: data.tax?.gross_salary,
+    verdict_scores: data.verdict?.scores,
+    verdict_findings: data.verdict?.findings,
+    verdict_summary: data.verdict?.summary,
   };
+
+  const loadingRef = useRef(false);
+  const contextRef = useRef(context);
+  contextRef.current = context;
 
   const send = useCallback(async (q) => {
     const question = q || input.trim();
-    if (!question) return;
+    if (!question || loadingRef.current) return;
+    loadingRef.current = true;
     setInput('');
     setMsgs(m => [...m, { role: 'user', text: question }]);
     setLoading(true);
     try {
-      const res = await askQuestion(question, context);
+      const res = await askQuestion(question, contextRef.current);
       setMsgs(m => [...m, { role: 'assistant', text: res.answer }]);
     } catch {
-      setMsgs(m => [...m, { role: 'assistant', text: 'Sorry, I hit an error. Try again.' }]);
+      setMsgs(m => [...m, { role: 'assistant', text: 'Sorry, hit an error. Try again.' }]);
     }
+    loadingRef.current = false;
     setLoading(false);
-  }, [input, context]);
-
-  // Handle prefilled question from Command Palette
-  useEffect(() => {
-    if (prefillQuestion) {
-      setInput(prefillQuestion);
-      onPrefillConsumed?.();
-      setTimeout(() => send(prefillQuestion), 100);
-    }
-    // eslint-disable-next-line
-  }, [prefillQuestion]);
+  }, [input]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [msgs, loading]);
+    if (externalQuestion) { send(externalQuestion); onExternalHandled?.(); }
+  }, [externalQuestion]);
+
+  const voice = useVoiceInput((transcript) => {
+    setInput(transcript);
+    send(transcript);
+  });
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, loading]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Quick chips */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-        {QUICK.map(q => (
-          <motion.button
-            key={q}
-            whileHover={{ scale: 1.04, y: -1 }}
-            whileTap={{ scale: 0.97 }}
-            className="btn-ghost"
-            style={{ fontSize: 11 }}
-            onClick={() => send(q)}
-          >
-            {q}
-          </motion.button>
-        ))}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <motion.button onClick={onOpenPalette} whileTap={{ scale: 0.98 }}
+        style={{
+          background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)', padding: '11px 16px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 10,
+          color: 'var(--text3)', fontSize: 13, fontFamily: 'inherit', width: '100%',
+          transition: 'all 0.2s',
+        }}>
+        <Search size={14} />
+        <span>Browse quick questions...</span>
+        <kbd style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 7px', fontSize: 11 }}>Ctrl+K</kbd>
+      </motion.button>
 
-      {/* Chat history */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 200 }}>
-        <AnimatePresence initial={false}>
-          {msgs.map((m, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 10, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-              style={{ maxWidth: '85%', alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start' }}
-            >
-              <div
-                className={`chat-${m.role}`}
-                style={{ borderRadius: 14, padding: '11px 15px', fontSize: 13, lineHeight: 1.65 }}
-              >
-                {m.text}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
-        {loading && (
+      {/* Voice indicator */}
+      <AnimatePresence>
+        {voice.listening && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ alignSelf: 'flex-start' }}
-          >
-            <div className="chat-assistant" style={{ borderRadius: 14, padding: '12px 16px' }}>
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                {[0,1,2].map(i => (
-                  <div key={i} style={{
-                    width: 6, height: 6, borderRadius: '50%',
-                    background: 'var(--green)',
-                    animation: `pulse 1s ease-in-out ${i*0.22}s infinite`,
-                  }} />
-                ))}
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            style={{
+              background: 'var(--accent-dim)', border: '1px solid var(--accent-border)',
+              borderRadius: 12, padding: '12px 16px',
+              display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden',
+            }}>
+            <div className="voice-pulse" />
+            <span style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 500 }}>
+              {voice.interim ? `"${voice.interim}"` : 'Listening... speak your question'}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 260, maxHeight: 440, overflowY: 'auto', padding: '4px 0' }}>
+        {msgs.map((m, i) => (
+          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            style={{ maxWidth: '86%', alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            {m.role === 'assistant' && (
+              <div style={{ width: 26, height: 26, borderRadius: 8, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+                <Target size={12} style={{ color: 'var(--accent)' }} />
               </div>
+            )}
+            <div className={`chat-${m.role}`} style={{ padding: '11px 15px', fontSize: 13, lineHeight: 1.7 }}>
+              {m.text}
             </div>
           </motion.div>
+        ))}
+        {loading && (
+          <div style={{ alignSelf: 'flex-start', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <div style={{ width: 26, height: 26, borderRadius: 8, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+              <Target size={12} style={{ color: 'var(--accent)' }} />
+            </div>
+            <div className="chat-assistant" style={{ padding: '11px 15px' }}>
+              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                <span className="wave-dot" />
+                <span className="wave-dot" />
+                <span className="wave-dot" />
+              </div>
+            </div>
+          </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div style={{ display: 'flex', gap: 8 }}>
-        <input
-          type="text" value={input}
-          placeholder="Ask anything about your finances..."
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && send()}
-          style={{ flex: 1 }}
-        />
-        <motion.button
-          className="btn-primary"
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.96 }}
-          onClick={() => send()}
-          disabled={!input.trim() || loading}
-        >
-          Send
+        {voice.supported && (
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={voice.toggle}
+            style={{
+              width: 42, height: 42, borderRadius: 12, border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: voice.listening ? 'var(--red)' : 'var(--accent)',
+              color: '#fff', transition: 'all 0.2s', flexShrink: 0,
+            }}
+            title={voice.listening ? 'Stop listening' : 'Voice input'}
+          >
+            {voice.listening ? <MicOff size={16} /> : <Mic size={16} />}
+          </motion.button>
+        )}
+        <input type="text" value={input} placeholder={voice.listening ? 'Listening...' : 'Ask anything about your finances...'}
+          onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} style={{ flex: 1 }} />
+        <motion.button className="btn-primary" whileTap={{ scale: 0.96 }}
+          onClick={() => send()} disabled={!input.trim() || loading}
+          style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Send size={14} /> Send
         </motion.button>
       </div>
     </div>
@@ -813,150 +1108,105 @@ function ChatTab({ data, prefillQuestion, onPrefillConsumed }) {
 }
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
-export default function DashboardPage({ data, onReset }) {
+export default function DashboardPage({ data, onReset, onBack }) {
   const [tab, setTab] = useState('xray');
-  const [prevTab, setPrevTab] = useState('xray');
   const [cmdOpen, setCmdOpen] = useState(false);
-  const [aiPrefill, setAiPrefill] = useState('');
+  const [pendingQ, setPendingQ] = useState(null);
 
-  const tabs = [
-    { id: 'xray', label: '📊 X-Ray'       },
-    { id: 'fire', label: '🔥 FIRE'        },
-    { id: 'tax',  label: '💸 Tax'         },
-    { id: 'chat', label: '💬 Ask AI'      },
-  ];
-
-  const tabOrder = tabs.map(t => t.id);
-  const direction = tabOrder.indexOf(tab) >= tabOrder.indexOf(prevTab) ? 1 : -1;
-
-  const switchTab = (id) => {
-    setPrevTab(tab);
-    setTab(id);
-  };
-
-  // Ctrl+K / Cmd+K to open command palette
   useEffect(() => {
-    const handler = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setCmdOpen(o => !o);
-      }
-      // Shortcut keys Ctrl+1..4
-      if ((e.metaKey || e.ctrlKey) && ['1','2','3','4'].includes(e.key)) {
-        e.preventDefault();
-        const ids = ['xray','fire','tax','chat'];
-        switchTab(ids[Number(e.key) - 1]);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [tab]);
+    const h = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setCmdOpen(o => !o); } };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
 
-  const handleCmdNavigate = (id) => {
-    switchTab(id);
+  const handleAsk = (q) => {
+    setTab('chat');
+    setTimeout(() => setPendingQ(q), 80);
   };
 
-  const handleCmdAskAI = (q) => {
-    setAiPrefill(q);
-    switchTab('chat');
-  };
-
-  const tabVariants = {
-    enter:  (dir) => ({ opacity: 0, x: dir > 0 ? 32 : -32 }),
-    center: { opacity: 1, x: 0 },
-    exit:   (dir) => ({ opacity: 0, x: dir > 0 ? -32 : 32 }),
-  };
+  const tabDefs = [
+    { id: 'xray', label: 'X-Ray',  icon: Crosshair },
+    { id: 'fire', label: 'FIRE',   icon: Flame },
+    { id: 'tax',  label: 'Tax',    icon: Receipt },
+    { id: 'chat', label: 'Ask AI', icon: MessageCircle },
+  ];
 
   return (
     <>
-      {/* Command Palette */}
-      <CommandPalette
-        open={cmdOpen}
-        onClose={() => setCmdOpen(false)}
-        onNavigate={handleCmdNavigate}
-        onAskAI={handleCmdAskAI}
-      />
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} onAsk={handleAsk} />
 
-      {/* Sticky nav header */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 100,
-        background: 'rgba(5,5,5,0.80)',
-        backdropFilter: 'blur(24px)',
-        WebkitBackdropFilter: 'blur(24px)',
-        borderBottom: '0.5px solid var(--glass-border)',
-        padding: '12px 20px',
-      }}>
-        <div style={{ maxWidth: 940, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 20px 80px' }}>
+        {/* Glass Nav */}
+        <div className="glass-nav" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>FinMentor AI</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)' }}>{data.investor_name} · Full Analysis</div>
+            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em' }}>
+              <span className="gradient-text">FinMentor AI</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{data.investor_name} · Full Analysis</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {/* Cmd+K hint button */}
-            <button
-              onClick={() => setCmdOpen(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: 'rgba(255,255,255,0.04)',
-                border: '0.5px solid var(--glass-border)',
-                borderRadius: 10, padding: '7px 14px', cursor: 'pointer',
-                color: 'var(--text3)', fontSize: 12, fontWeight: 500,
-                fontFamily: 'inherit',
-              }}
-            >
-              <span>⌘K</span>
-              <span style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '0.5px solid var(--glass-border)',
-                borderRadius: 4, padding: '1px 6px', fontSize: 10, color: 'var(--text3)',
-              }}>Search</span>
-            </button>
-            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-              className="btn-ghost" onClick={onReset} style={{ fontSize: 12 }}>
-              ← New Analysis
+            <motion.button onClick={onBack} className="btn-ghost" whileTap={{ scale: 0.96 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12 }}>
+              <ArrowLeft size={13} /> Verdict
+            </motion.button>
+            <motion.button onClick={() => setCmdOpen(true)} className="btn-ghost" whileTap={{ scale: 0.96 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12 }}>
+              <Search size={13} /> <span>Ctrl+K</span>
+            </motion.button>
+            <motion.button className="btn-ghost" onClick={onReset} whileTap={{ scale: 0.96 }}
+              style={{ fontSize: 12 }}>
+              New Analysis
             </motion.button>
           </div>
         </div>
-      </div>
 
-      {/* Main content */}
-      <div style={{ maxWidth: 940, margin: '0 auto', padding: '28px 20px 80px' }}>
-        {/* Tabs */}
-        <div className="tabs" style={{ marginBottom: 28 }}>
-          {tabs.map(t => (
-            <div
-              key={t.id}
-              className={`tab ${tab === t.id ? 'active' : ''}`}
-              onClick={() => switchTab(t.id)}
-            >
-              {t.label}
-            </div>
-          ))}
+        {/* Sticky Tabs */}
+        <div className="sticky-tabs">
+          <div className="tabs">
+            {tabDefs.map(t => {
+              const Icon = t.icon;
+              return (
+                <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
+                  onClick={() => setTab(t.id)} style={{ position: 'relative' }}>
+                  {tab === t.id && (
+                    <motion.div className="tab-indicator" layoutId="tab-indicator"
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }} />
+                  )}
+                  <Icon size={14} style={{ position: 'relative', zIndex: 1 }} />
+                  <span style={{ position: 'relative', zIndex: 1 }}>{t.label}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Animated tab content */}
-        <AnimatePresence mode="wait" custom={direction}>
-          <motion.div
-            key={tab}
-            custom={direction}
-            variants={tabVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {tab === 'xray' && <XRayTab xray={data.xray} />}
-            {tab === 'fire' && <FireTab fire={data.fire} />}
-            {tab === 'tax'  && <TaxTab  tax={data.tax}   />}
-            {tab === 'chat' && (
-              <ChatTab
-                data={data}
-                prefillQuestion={aiPrefill || undefined}
-                onPrefillConsumed={() => setAiPrefill('')}
-              />
-            )}
-          </motion.div>
-        </AnimatePresence>
+        {/* Content */}
+        <div style={{ paddingTop: 20 }}>
+          <AnimatePresence mode="wait">
+            <motion.div key={tab}
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
+              {tab === 'xray' && <XRayTab xray={data.xray} />}
+              {tab === 'fire' && <FireTab fire={data.fire} />}
+              {tab === 'tax'  && <TaxTab  tax={data.tax} />}
+              {tab === 'chat' && (
+                <ChatTab
+                  data={data}
+                  onOpenPalette={() => setCmdOpen(true)}
+                  externalQuestion={pendingQ}
+                  onExternalHandled={() => setPendingQ(null)}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+        {/* SEBI Disclaimer */}
+        <div className="disclaimer-footer">
+          <strong>Disclaimer:</strong> This tool is for informational and educational purposes only. It does not constitute
+          investment advice, tax advice, or financial planning services under SEBI (Investment Advisers)
+          Regulations, 2013. Always consult a SEBI-registered investment advisor before making financial decisions.
+          Past performance does not guarantee future returns. Mutual fund investments are subject to market risks.
+        </div>
       </div>
     </>
   );

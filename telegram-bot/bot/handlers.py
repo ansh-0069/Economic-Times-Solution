@@ -2,23 +2,29 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
 
-from telegram import Update
+import httpx
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from ai.chat_guard import handle_guarded_chat
-from ai.formatter import format_callback_response, format_response
+from ai.formatter import format_callback_response, format_response, format_web_response
 from ai.gemini_explainer import generate_gemini_explanation
 from decision.rules import evaluate_portfolio
 from extraction.extractor import ExtractionError, extract_pdf_to_json, transform_extracted_data
 from finance.metrics import compute_portfolio_metrics
 from utils.fallback import build_demo_finance_output
 from utils.helpers import create_result_keyboard, ensure_tmp_dir, generate_report, safe_delete
+
+WEB_API_URL = os.getenv("WEB_API_URL", "http://localhost:8000")
+WEB_FRONTEND_URL = os.getenv("WEB_FRONTEND_URL", "http://localhost:3000")
 
 STAGE_MESSAGES = (
     "Analyzing your portfolio...",
@@ -157,8 +163,46 @@ async def _execute_portfolio_analysis(update: Update, context: ContextTypes.DEFA
     typing_task = asyncio.create_task(_typing_indicator(update, context, stop_event))
     progress_task = asyncio.create_task(_progress_indicator(progress_message, stop_event))
 
+    web_result = None
     try:
-        metrics, used_demo = await _run_pipeline(temp_pdf)
+        web_result = await _run_pipeline_web(temp_pdf)
+    except Exception:
+        pass
+
+    if web_result and web_result.get("verdict"):
+        stop_event.set()
+        await _await_task(typing_task)
+        await _await_task(progress_task)
+        safe_delete(temp_pdf)
+
+        language = context.user_data.get("language", context.bot_data.get("default_language", "english"))
+        final_message = format_web_response(web_result, language=language)
+
+        context.user_data["web_result"] = web_result
+        context.user_data["analysis_metrics"] = None
+        context.user_data["decision_output"] = None
+
+        if web_result.get("is_demo"):
+            await update.effective_message.reply_text(
+                "⚠️ Could not extract your portfolio reliably. "
+                "Showing demo analysis — upload a clearer PDF for accurate results.",
+            )
+
+        with contextlib.suppress(BadRequest):
+            await progress_message.edit_text("✅ Analysis complete.")
+
+        keyboard = _build_result_keyboard_with_dashboard(web_result, language)
+        await update.effective_message.reply_text(
+            final_message,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+        return
+
+    # Fallback to local pipeline
+    try:
+        metrics, used_demo = await _run_pipeline_local(temp_pdf)
     except Exception:
         used_demo = True
         metrics = build_demo_finance_output()
@@ -175,6 +219,7 @@ async def _execute_portfolio_analysis(update: Update, context: ContextTypes.DEFA
 
         context.user_data["analysis_metrics"] = metrics
         context.user_data["decision_output"] = decision_output
+        context.user_data["web_result"] = None
 
         if used_demo:
             await update.effective_message.reply_text(
@@ -184,7 +229,7 @@ async def _execute_portfolio_analysis(update: Update, context: ContextTypes.DEFA
             )
 
         with contextlib.suppress(BadRequest):
-            await progress_message.edit_text("Analysis complete.")
+            await progress_message.edit_text("✅ Analysis complete.")
         await update.effective_message.reply_text(
             final_message,
             parse_mode=ParseMode.HTML,
@@ -199,7 +244,7 @@ async def _execute_portfolio_analysis(update: Update, context: ContextTypes.DEFA
         context.user_data["analysis_metrics"] = fallback_metrics
         context.user_data["decision_output"] = fallback_decision
         with contextlib.suppress(BadRequest):
-            await progress_message.edit_text("Analysis complete.")
+            await progress_message.edit_text("✅ Analysis complete.")
         await update.effective_message.reply_text(
             "⚠️ Could not extract your portfolio reliably. "
             "Showing demo analysis — upload a clearer PDF for accurate results.",
@@ -283,7 +328,34 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             )
 
 
-async def _run_pipeline(pdf_path: Path) -> tuple[dict[str, Any], bool]:
+async def _run_pipeline_web(pdf_path: Path) -> dict[str, Any] | None:
+    """Call the shared FastAPI backend for analysis. Returns full response or None on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            with open(pdf_path, "rb") as f:
+                files = {"cams_file": ("statement.pdf", f, "application/pdf")}
+                data = {"use_demo": "false"}
+                resp = await client.post(f"{WEB_API_URL}/analyse", files=files, data=data)
+                resp.raise_for_status()
+                return resp.json()
+    except Exception:
+        return None
+
+
+async def _run_pipeline_web_demo() -> dict[str, Any] | None:
+    """Call the shared FastAPI backend with demo data."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            data = {"use_demo": "true"}
+            resp = await client.post(f"{WEB_API_URL}/analyse", data=data)
+            resp.raise_for_status()
+            return resp.json()
+    except Exception:
+        return None
+
+
+async def _run_pipeline_local(pdf_path: Path) -> tuple[dict[str, Any], bool]:
+    """Local fallback pipeline when web backend is unavailable."""
     try:
         extracted = await asyncio.wait_for(
             asyncio.to_thread(extract_pdf_to_json, pdf_path),
@@ -364,6 +436,33 @@ async def _handle_report_download(
             )
     finally:
         safe_delete(report_path)
+
+
+def _build_result_keyboard_with_dashboard(web_result: dict[str, Any], language: str) -> InlineKeyboardMarkup:
+    """Build inline keyboard with a 'Open Full Dashboard' deep-link button when session_id is available."""
+    english_label = "English ✅" if language == "english" else "English"
+    hinglish_label = "Hinglish ✅" if language == "hinglish" else "Hinglish"
+    buttons = [
+        [
+            InlineKeyboardButton(english_label, callback_data="lang_english"),
+            InlineKeyboardButton(hinglish_label, callback_data="lang_hinglish"),
+        ],
+    ]
+
+    session_id = web_result.get("session_id")
+    if session_id:
+        dashboard_url = f"{WEB_FRONTEND_URL}?session={session_id}"
+        buttons.append([
+            InlineKeyboardButton("📊 Open Full Dashboard", url=dashboard_url),
+        ])
+
+    buttons.extend([
+        [InlineKeyboardButton("Why this decision?", callback_data="why_decision")],
+        [InlineKeyboardButton("What happens if I do nothing?", callback_data="do_nothing")],
+        [InlineKeyboardButton("Explain this simply", callback_data="explain_simple")],
+        [InlineKeyboardButton("Download detailed report", callback_data="download_report")],
+    ])
+    return InlineKeyboardMarkup(buttons)
 
 
 def _should_use_demo_metrics(metrics: dict[str, Any]) -> bool:

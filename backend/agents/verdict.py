@@ -1,85 +1,84 @@
 """
 AI Verdict Engine
-Claude reads all analysis outputs and generates 3 proactive "findings"
+Gemini reads all analysis outputs and generates 3 proactive "findings"
 before the user asks anything. This is the jaw-drop moment.
 """
 
 import os, json, re
 from dotenv import load_dotenv
-import anthropic
+import google.generativeai as genai
 
 load_dotenv()
-API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
-try:
-    client = anthropic.Anthropic(api_key=API_KEY) if API_KEY else None
-except Exception:
-    # Keep backend usable in fallback mode if SDK/runtime versions are incompatible.
-    client = None
+API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+if API_KEY:
+    genai.configure(api_key=API_KEY)
+
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
 
-def _model_candidates():
-    models = [
-        os.getenv("ANTHROPIC_MODEL_PRIMARY", "").strip(),
-        os.getenv("ANTHROPIC_MODEL_FALLBACK", "").strip(),
-        "claude-3-5-sonnet-latest",
-        "claude-3-haiku-20240307",
-    ]
-    seen = set()
-    ordered = []
-    for m in models:
-        if m and m not in seen:
-            seen.add(m)
-            ordered.append(m)
-    return ordered
+def _llm_text(prompt, max_tokens=600, system=None):
+    """Call Gemini and return text or None on failure.
 
-
-def _llm_text(messages, max_tokens=600, system=None):
-    """Try configured models in order; return text or None if all attempts fail."""
-    if not client:
+    For Gemini 2.5 "thinking" models, the thinking tokens are subtracted from
+    max_output_tokens.  We inflate the budget so the *visible* reply still has
+    room after the model's internal reasoning.
+    """
+    if not API_KEY:
         return None
 
-    for model in _model_candidates():
-        try:
-            kwargs = {
-                "model": model,
-                "max_tokens": max_tokens,
-                "messages": messages,
-            }
-            if system:
-                kwargs["system"] = system
-            resp = client.messages.create(**kwargs)
-            return resp.content[0].text.strip()
-        except Exception:
-            continue
+    try:
+        effective_max = max_tokens
+        if "2.5" in MODEL_NAME:
+            effective_max = max_tokens + 8000
 
-    return None
+        model = genai.GenerativeModel(
+            model_name=MODEL_NAME,
+            system_instruction=system,
+        )
+        resp = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=effective_max,
+                temperature=0.7,
+            ),
+        )
+
+        # Extract only the non-thought text parts from the response
+        if resp.candidates and resp.candidates[0].content.parts:
+            text_parts = []
+            for part in resp.candidates[0].content.parts:
+                if hasattr(part, 'thought') and part.thought:
+                    continue
+                if hasattr(part, 'text') and part.text:
+                    text_parts.append(part.text)
+            if text_parts:
+                return "\n".join(text_parts).strip()
+
+        return resp.text.strip()
+    except Exception:
+        return None
 
 
 def llm_status():
     """Return LLM connectivity status for health checks."""
-    models = _model_candidates()
-
     if not API_KEY:
         return {
             "configured": False,
             "reachable": False,
-            "provider": "anthropic",
-            "models": models,
+            "provider": "gemini",
+            "model": MODEL_NAME,
             "mode": "fallback",
-            "message": "ANTHROPIC_API_KEY is not set",
+            "message": "GEMINI_API_KEY is not set",
         }
 
-    text = _llm_text(
-        messages=[{"role": "user", "content": "Reply with OK"}],
-        max_tokens=8,
-    )
+    text = _llm_text("Reply with OK", max_tokens=8)
 
     if text:
         return {
             "configured": True,
             "reachable": True,
-            "provider": "anthropic",
-            "models": models,
+            "provider": "gemini",
+            "model": MODEL_NAME,
             "mode": "llm",
             "message": "LLM reachable",
         }
@@ -87,8 +86,8 @@ def llm_status():
     return {
         "configured": True,
         "reachable": False,
-        "provider": "anthropic",
-        "models": models,
+        "provider": "gemini",
+        "model": MODEL_NAME,
         "mode": "fallback",
         "message": "LLM not reachable (check credits, key permissions, or model access)",
     }
@@ -187,17 +186,13 @@ Severity rules:
 - opportunity = money being left on the table they could claim"""
 
     try:
-        raw = _llm_text(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1500,
-        )
+        raw = _llm_text(prompt, max_tokens=1500)
         if not raw:
             raise RuntimeError("No LLM response")
         raw = re.sub(r"^```json\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         return json.loads(raw)
     except Exception:
-        # Graceful fallback — still returns something useful
         return {
             "scores": {
                 "overall": max(0, min(100, round((
@@ -300,15 +295,21 @@ def _fallback_answer(question, context):
 
 def answer_question(question, context):
     """RAG Q&A — answers grounded in user's actual data."""
-    ctx = json.dumps(context, indent=2)[:4000]
+    ctx = json.dumps(context, indent=2)[:8000]
+
+    system = """You are FinMentor AI — India's most trusted AI financial advisor.
+Answer using ONLY the user's actual financial data provided below.
+Be specific with rupee amounts and percentages. Give thorough, detailed answers — 
+use as many sentences as needed to fully address the question.
+If data doesn't support the answer, say so honestly.
+Never make up numbers. Sound like a knowledgeable CA friend having a real conversation.
+For thinking-based or strategy questions, reason step-by-step using the data.
+Always refer to the user by name when available."""
+
+    prompt = f"My complete financial data:\n{ctx}\n\nQuestion: {question}"
+
     try:
-        text = _llm_text(
-            messages=[{"role": "user", "content": f"My financial data:\n{ctx}\n\nQuestion: {question}"}],
-            max_tokens=600,
-            system="""You are FinMentor AI. Answer using ONLY the user's actual financial data.
-Be specific with rupee amounts. 2-4 sentences. If data doesn't support the answer, say so.
-Never make up numbers. Sound like a knowledgeable CA friend, not a robot.""",
-        )
+        text = _llm_text(prompt, max_tokens=2000, system=system)
         if text:
             return text
     except Exception:

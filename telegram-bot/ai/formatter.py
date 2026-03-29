@@ -74,6 +74,60 @@ def format_callback_response(
     return responses[response_type]
 
 
+def format_web_response(data: dict[str, Any], language: str = "english") -> str:
+    """Format the web backend's /analyse response for Telegram HTML display."""
+    language_key = "hinglish" if language.lower() == "hinglish" else "english"
+    verdict = data.get("verdict", {})
+    xray = data.get("xray", {})
+    scores = verdict.get("scores", {})
+    findings = verdict.get("findings", [])
+    summary = verdict.get("summary", "")
+    overall = scores.get("overall", 0)
+
+    parts = []
+
+    parts.append(_build_health_score_display(overall, language_key))
+
+    if summary:
+        parts.append(f"📋 {escape(summary)}")
+
+    if findings:
+        finding_lines = []
+        for f in findings[:3]:
+            emoji = f.get("emoji", "•")
+            title = escape(f.get("title", ""))
+            headline = escape(f.get("headline", ""))
+            finding_lines.append(f"{emoji} <b>{title}</b>\n{headline}")
+        parts.append("\n\n".join(finding_lines))
+
+    metrics_lines = []
+    if xray.get("portfolio_xirr_pct") is not None:
+        metrics_lines.append(f"📈 XIRR: <b>{xray['portfolio_xirr_pct']:.1f}%</b>")
+    if xray.get("total_current_value"):
+        metrics_lines.append(f"💰 Portfolio: <b>{format_currency(xray['total_current_value'])}</b>")
+    if xray.get("annual_expense_drag"):
+        metrics_lines.append(f"💸 Annual Fee Drag: <b>{format_currency(xray['annual_expense_drag'])}</b>")
+    if xray.get("high_overlap_pairs"):
+        metrics_lines.append(f"🔁 Overlap Pairs: <b>{len(xray['high_overlap_pairs'])}</b>")
+    if metrics_lines:
+        parts.append("\n".join(metrics_lines))
+
+    score_lines = []
+    for key, label in [("returns", "Returns"), ("diversification", "Diversification"),
+                        ("cost_efficiency", "Cost"), ("tax_optimisation", "Tax")]:
+        val = scores.get(key)
+        if val is not None:
+            score_lines.append(f"{label}: {val}/100")
+    if score_lines:
+        parts.append("📊 " + " · ".join(score_lines))
+
+    good_news = verdict.get("good_news")
+    if good_news:
+        parts.append(f"✅ {escape(good_news)}")
+
+    return "\n\n".join(parts)
+
+
 def _format_incomplete(language: str) -> str:
     if language == "hinglish":
         return (

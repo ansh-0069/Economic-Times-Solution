@@ -1,6 +1,7 @@
 """MF X-Ray: XIRR, overlap matrix, expense drag, asset allocation."""
 
-from datetime import date, datetime
+import datetime as _dt
+from datetime import date, datetime, timedelta
 from pyxirr import xirr
 
 NIFTY_3Y = 13.8
@@ -124,6 +125,9 @@ def run_xray(cams):
         alloc[t] = alloc.get(t, 0) + float(f["current_value"])
     alloc_pct = {k: round(v / total * 100, 1) for k, v in alloc.items()} if total else {}
 
+    # Growth timeline: actual portfolio vs Nifty benchmark over time
+    growth_timeline = _build_growth_timeline(folios, total)
+
     return {
         "portfolio_xirr_pct":    port_xirr,
         "nifty_3y_pct":          NIFTY_3Y,
@@ -139,4 +143,66 @@ def run_xray(cams):
         "expense_drag_10y":      round(drag_10y, 0),
         "allocation":            alloc_pct,
         "fund_count":            len(folios),
+        "growth_timeline":       growth_timeline,
     }
+
+
+def _build_growth_timeline(folios, current_total):
+    """Build a month-by-month comparison of actual invested vs Nifty growth."""
+    nifty_monthly = NIFTY_3Y / 100 / 12
+    all_flows = []
+    for f in folios:
+        for t in f.get("transactions", []):
+            try:
+                d = datetime.strptime(t["date"], "%Y-%m-%d").date()
+                a = float(t["amount"])
+                if t.get("type") in ("Purchase", "SIP"):
+                    all_flows.append((d, a))
+            except Exception:
+                continue
+
+    if not all_flows:
+        return []
+
+    all_flows.sort(key=lambda x: x[0])
+    start = all_flows[0][0].replace(day=1)
+    end = date.today().replace(day=1)
+    if start >= end:
+        return []
+
+    timeline = []
+    cumulative_invested = 0.0
+    nifty_corpus = 0.0
+    month = start
+
+    flow_idx = 0
+    while month <= end:
+        next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+        month_invested = 0.0
+        while flow_idx < len(all_flows) and all_flows[flow_idx][0] < next_month:
+            month_invested += all_flows[flow_idx][1]
+            flow_idx += 1
+
+        cumulative_invested += month_invested
+        nifty_corpus = (nifty_corpus + month_invested) * (1 + nifty_monthly)
+
+        months_elapsed = (month.year - start.year) * 12 + (month.month - start.month)
+        if months_elapsed >= 0 and current_total > 0:
+            frac = months_elapsed / max(1, ((end.year - start.year) * 12 + (end.month - start.month)))
+            actual_est = cumulative_invested + (current_total - sum(a for _, a in all_flows)) * frac
+        else:
+            actual_est = cumulative_invested
+
+        timeline.append({
+            "month": month.strftime("%b %y"),
+            "invested": round(cumulative_invested),
+            "nifty": round(nifty_corpus),
+            "actual": round(max(actual_est, cumulative_invested)),
+        })
+
+        month = next_month
+
+    if timeline:
+        timeline[-1]["actual"] = round(current_total)
+
+    return timeline

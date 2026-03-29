@@ -1,6 +1,6 @@
 """FastAPI backend — all endpoints for FinMentor AI."""
 
-import json, os, tempfile
+import json, os, tempfile, uuid
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,6 +17,8 @@ load_dotenv()
 
 app = FastAPI(title="FinMentor AI", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+_sessions: dict[str, dict] = {}
 
 
 class QARequest(BaseModel):
@@ -59,22 +61,45 @@ async def analyse(
     if not demo:
         if cams_file and cams_file.filename:
             try:
-                import pdfplumber, anthropic, re
+                import pdfplumber, re
+                import google.generativeai as genai
+                genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
                 with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                     tmp.write(await cams_file.read()); path = tmp.name
                 with pdfplumber.open(path) as pdf:
                     text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-                c = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-                r = c.messages.create(
-                    model="claude-opus-4-5", max_tokens=4000,
-                    messages=[{"role": "user", "content": f"Extract mutual fund data from this CAMS statement as JSON with fields: investor_name, total_invested, total_current_value, folios (array with scheme_name, fund_house, scheme_type, current_value, transactions). Return ONLY valid JSON.\n\n{text[:6000]}"}]
+                model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+                r = model.generate_content(
+                    f"Extract mutual fund data from this CAMS statement as JSON with fields: investor_name, total_invested, total_current_value, folios (array with scheme_name, fund_house, scheme_type, current_value, transactions). Return ONLY valid JSON.\n\n{text[:6000]}",
+                    generation_config=genai.types.GenerationConfig(max_output_tokens=4000),
                 )
-                raw = re.sub(r"```json|```", "", r.content[0].text).strip()
+                raw = re.sub(r"```json|```", "", r.text).strip()
                 parsed = json.loads(raw)
                 if parsed.get("folios"):
                     cams = parsed
             except Exception:
                 pass  # fall back to sample
+
+        if form16_file and form16_file.filename:
+            try:
+                import pdfplumber, re
+                import google.generativeai as genai
+                genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(await form16_file.read()); f16_path = tmp.name
+                with pdfplumber.open(f16_path) as pdf:
+                    f16_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+                model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+                r16 = model.generate_content(
+                    f"Extract salary and tax data from this Form 16 as JSON with fields: employee_name, financial_year, salary_details (gross_salary, basic_salary, hra_received), deductions_80c (epf, lic_premium, total_80c), other_deductions (section_80d, section_80ccd_nps, home_loan_interest), city (metro or non-metro), rent_paid_annually. Return ONLY valid JSON.\n\n{f16_text[:6000]}",
+                    generation_config=genai.types.GenerationConfig(max_output_tokens=2000),
+                )
+                raw16 = re.sub(r"```json|```", "", r16.text).strip()
+                parsed16 = json.loads(raw16)
+                if parsed16.get("salary_details"):
+                    form16 = parsed16
+            except Exception:
+                pass
 
         if goal_data_json:
             try:
@@ -93,14 +118,26 @@ async def analyse(
         cams.get("investor_name", "Investor")
     )
 
-    return {
+    session_id = str(uuid.uuid4())
+    result = {
         "investor_name": cams.get("investor_name", "Investor"),
         "xray":    xray_result,
         "fire":    fire_result,
         "tax":     tax_result,
         "verdict": verdict,
         "is_demo": demo,
+        "session_id": session_id,
     }
+    _sessions[session_id] = result
+    return result
+
+
+@app.get("/session/{session_id}")
+def get_session(session_id: str):
+    data = _sessions.get(session_id)
+    if not data:
+        raise HTTPException(404, "Session not found or expired")
+    return data
 
 
 @app.post("/qa")
