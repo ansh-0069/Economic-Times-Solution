@@ -1,0 +1,98 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{booktabs}
+
+% Custom Colors
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{highlight}{HTML}{7E57C2}
+\definecolor{logic}{HTML}{00897B}
+\definecolor{action}{HTML}{F57C00}
+
+% Title Formatting
+\titleformat{\section}{\large\bfseries\color{primary}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{highlight}}{}{0em}{}
+
+\title{\Huge \textbf{FinMentor AI \& ArthaScan} \\ \Large A Unified Architecture for Zero-Hallucination Financial Advice}
+\author{\textbf{Hackathon Submission: PS 9 --- AI Money Mentor}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{tcolorbox}[colback=blue!5!white,colframe=blue!75!black,title=Executive Summary]
+The FinMentor AI ecosystem addresses the critical problem of automated financial advice: \textbf{Trust vs. Generative Noise}. Our architecture implements a "Zero-Hallucination" philosophy by strictly isolating all mathematical and business logic from the Large Language Models (LLMs). The LLMs are utilized solely for multi-channel data extraction and conversational translation, while 100\% of the financial truths are derived from deterministic Python engines.
+\end{tcolorbox}
+
+\section{System Architecture Overview}
+The system enables a dual-channel experience via a full \textbf{React Web Dashboard} and a frictionless \textbf{Telegram Bot Interface}. Both channels converge on a unified high-resolution extraction and analysis pipeline.
+
+\begin{center}
+    \includegraphics[width=0.85\textwidth]{architecture.png}
+    \captionof{figure}{High-Level System Flow: Extraction, Calculation, and Decision Layers}
+\end{center}
+
+\section{I. Multimodal Data Extraction Pipeline}
+Large Language Models often struggle with dense, tabular financial statements (CAMS/KFintech). Our pipeline bypasses traditional text-crawling vulnerabilities through a Vision-First approach:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Image Rasterization:} Documents are converted to high-resolution (200 DPI) PNG images to avoid character mangling common in standard PDF libraries.
+    \item \textbf{Vision LLM Parsing:} We leverage Vision-capable LLMs to "read" the visual structure of the tables, extracting folio-level data into a strictly typed JSON structure.
+    \item \textbf{Recursive Self-Healing:} Every extraction is validated via Pydantic. If syntax errors occur, the system triggers a recursive LLM loop to repair the JSON before it reaches the analysis core.
+    \item \textbf{Regex Fallback:} A silent regex-based parser serves as a safety net during API timeouts or high latency, ensuring the user always sees their baseline data.
+\end{itemize}
+
+\newpage
+
+\section{II. The Deterministic Financial Engine}
+In our architecture, the AI is "Math-Blind." Once the data is extracted, it enters a walled-off sandbox where only pure Python algorithms are permitted to operate.
+
+\subsection{1. The XIRR Computing Engine}
+Instead of relying on LLM estimations, we implement a binary-search algorithm performing standard \textbf{XNPV} calculations against exact historical cashflows. This ensures the reported XNPV and XIRR are 100\% audited and mathematically sound.
+
+\subsection{2. Portfolio Overlap \& Duplication}
+The engine normalizes individual stock exposures across all mutual funds. By calculating the intersection of thousands of underlying assets, the system identifies hidden portfolio duplication—often revealing that users are paying multiple management fees for the same underlying stocks.
+
+\subsection{3. Wealth Bleed Analysis}
+The engine calculates the "Visible vs. Invisible Cost" by compounding the user's specific Expense Ratio (TER) against a Direct Plan baseline (0.1--0.5\%) over a 10-year horizon.
+
+\section{III. Rigid Rules-Based Decision Hierarchy}
+The transition from "Math" to "Advice" is governed by a hardcoded heuristic tree (\texttt{rules.py}). The system categorizes each fund based on specific financial thresholds:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Condition} & \textbf{System Directive} \\
+\midrule
+Asset Overlap $> 60\%$ & \textbf{CONSOLIDATE} (Instructions to merge folios) \\
+Expense Drag $> 1.0\%$ & \textbf{SWITCH} (Transition from Regular to Direct) \\
+Closet Index Tracking & \textbf{SELL} (Moving to low-cost Index alternatives) \\
+Underperformance vs Peer & \textbf{REVIEW} (Watchlist placement) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{IV. "Glass-Box" Presentation \& Intent Routing}
+The AI layer (Agent) serves as the presentation face. An \textbf{Intent Router} ensures that conversational queries are always grounded:
+\begin{itemize}
+    \item \textbf{Math Queries:} Requests for numbers bypass the LLM and pull directly from the Math Engine.
+    \item \textbf{Explanation Agent:} When asked *"Why?"*, the LLM is provided with the dry JSON math and a strict systemic command to translate those facts into fluid English/Hinglish without hallucinating new data.
+\end{itemize}
+
+\section{Technology Stack}
+\begin{itemize}
+    \item \textbf{Core Engine:} Python 3.11+, pyxirr, NumPy, Pydantic.
+    \item \textbf{Backend:} FastAPI, Telegram Bot API.
+    \item \textbf{Frontend:} React 18, Recharts, Dark-mode Design System.
+    \item \textbf{AI Models:} Vision-capable Multi-modal LLMs.
+\end{itemize}
+
+\end{document}

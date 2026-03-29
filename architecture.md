@@ -1,45 +1,66 @@
 # Complete System Architecture (FinMentor AI & ArthaScan)
 
 > [!IMPORTANT]
-> This system is built on **"Zero-Hallucination Finance,"** isolating mathematical logic from generative AI to ensure 100% accurate financial advice.
+> This system is built on **"Zero-Hallucination Finance,"** strictly isolating all mathematical and business logic from the generative AI models to ensure 100% accuracy.
 
 ---
 
-## 🏗️ Unified Flow
-![Architecture Diagram](./architecture.png)
+## 🏗️ Unified Visual Flow
+![System Architecture Diagram](./architecture.png)
+
+### Color Guide
+- **Purple nodes:** Non-deterministic generative Vision LLMs.
+- **Teal nodes:** Pure Python, 100% deterministic algorithms.
+- **Red nodes:** Silent fail-safe mechanisms (Regex fallback).
+- **Orange nodes:** Final, immutable business logic actions.
 
 ---
 
-## 🛠️ Component Breakdown (1-Page Summary)
+## 1. Multimodal Data Extraction Pipeline
+A major vulnerability in financial GenAI tools is that standard text-crawlers (like `PyPDF`) routinely mangle complex statement tables, leading to "Garbage In, Garbage Out."
 
-### 1. Multi-Channel Extraction (Vision-First)
-Standard text extraction often fails on complex statements. We use **Vision LLMs** to "read" document images:
-*   **Web Dashboard:** Combines `pdfplumber` with Vision-capable LLMs for structural parsing.
-*   **Telegram Bot:** Rasterizes PDFs to 200 DPI PNGs via `PyMuPDF` for high-accuracy image-to-JSON extraction.
-*   **Error Handling:** Features a **Self-Healing Loop** (Pydantic re-prompts for JSON repairs) and **Regex Fallbacks** for resilient data capture.
-
-### 2. Deterministic Financial Engine (The Sandbox)
-AI is banned from calculations. A static Python engine processes the validated JSON payload:
-*   **XIRR Engine:** Uses `XNPV` binary-search for true annualized returns.
-*   **Duplication Engine:** Intersects fund holdings to find hidden asset overlap.
-*   **Wealth Bleed:** Calculates 10-year fee erosion vs. index baselines.
-
-### 3. Agent Roles & Decisions
-*   **Extraction Agent:** Converts messy PDFs into structured "Financial Truth" dictionaries.
-*   **Decision Engine:** A rigid heuristic tree (rules.py) that issues `SELL`, `SWITCH`, or `CONSOLIDATE` commands based on math—not probability.
-*   **Presentation Agent:** Translates JSON findings into fluid conversational English/Hinglish (Chat Guards prevent hallucinations).
-
-### 4. Tool Integrations
-| Interface | Tech Stack | Primary Tools |
-| :--- | :--- | :--- |
-| **Backend** | FastAPI / Python | pyxirr, numpy, pydantic |
-| **Frontend** | React 18 / Recharts | Animated ScoreRings, Heatmaps |
-| **Bot** | Telegram Bot API | ReportLab (PDF Gen), Cache |
+**ArthaScan** and **FinMentor** solve this by avoiding raw text processing:
+*   **Rasterization:** The **Image Rasterizer** utilizes `PyMuPDF` to convert critical document pages into high-resolution 200 DPI images.
+*   **Vision Extraction:** These images are fed directly into **Vision LLMs**, which "read" the tabular data exactly like a human accountant. 
+*   **Self-Healing Loop:** To guarantee pipeline stability, the extracted text is forced through a strict **Pydantic Validation Loop**. If the LLM output is malformed, the script intercepts the failure and recursively prompts the model to repair its own syntax errors.
+*   **Fail-safe:** If the API times out, a **Regex Fallback Parser** attempts to catch standard patterns to ensure the dashboard remains populated.
 
 ---
 
-## 🛡️ Scalability & Production Note
-The architecture is **model-agnostic**. Cloud-based Vision LLMs can be swapped for on-premise models (e.g., LLaVA) or secure enterprise OCR engines (e.g., Textract) to ensure data residency without altering the core deterministic engines.
+## 2. The "Zero-Hallucination" Math Sandbox
+Large Language Models cannot do complex math reliably. Therefore, LLMs are permanently banned from performing financial computations in this architecture. 
+
+The validated JSON payload is passed to a walled-off **Deterministic Financial Engine**:
+- **XIRR Engine:** Instead of estimating returns, a native Python binary-search algorithm executes standard `XNPV` calculations against exact cashflow dates to determine True Annualized Returns.
+- **Duplication Engine:** Individual stock holdings across all mutual funds are weighted, normalized, and intersected to reveal hidden asset overlap.
+- **Wealth Bleed:** Calculates exact value erosion by comparing the user's high Expense Ratio (TER) against a 0.1% baseline compounded over a decade.
+- **Tax & FIRE:** Pure Python logic determines tax deduction gaps and retirement corpus projections.
+
+---
+
+## 3. Rigid Decision Hierarchy (rules.py)
+The math engine passes aggregated financial truths into the **Rules Engine**. This is a hardcoded heuristic tree that issues absolute financial directives. 
+
+For example:
+*   If **Overlap > 60%**, the engine triggers an automatic `CONSOLIDATE` action. 
+*   If a fund is a **"Closet Indexer"** (high tracking but high fees), it triggers a `SWITCH` action.
+*   If performance is optimal, it triggers a `KEEP` action.
+
+The system does not "ask" the AI what the user should do; it tells the AI what the math has already decided.
+
+---
+
+## 4. "Glass-Box" Presentation & Chat Guards
+Once the math is decided, LLMs are used strictly as a UI translation and explanation layer. 
+
+Instead of a rigid chatbot, users interact with an asynchronous **Intent Router**:
+1.  **Mathematical Queries:** If a user asks *"What is my overlap?"*, the system bypasses AI entirely and returns the deterministic answer from the math engine.
+2.  **Conversational RAG:** If the user asks *"Why is this fund bad?"*, the router injects the deterministic payload into a strict systemic prompt. The **Guarded Vision LLM Explainer** is commanded to answer using *only* the provided math, effectively translating dry JSON into fluid English or Hinglish without hallucinations. 
+
+---
+
+## 🛡️ Prototype & Infrastructure Note
+While this prototype highlights Vision LLMs for their reasoning capabilities, the architecture is designed to be **provider-independent**. Cloud-based APIs can be substituted with locally-hosted models (e.g., LLaVA) or secure enterprise OCR engines ensuring offline capability and zero data leakage.
 
 <details>
 <summary>View Mermaid Source Code</summary>
