@@ -6,7 +6,7 @@
 ---
 
 ## 🏗️ Unified Visual Flow
-![System Architecture Diagram](./architecture.png)
+![System Architecture Diagram](./architecture.svg)
 
 ### Color Guide
 - **Purple nodes:** Non-deterministic generative Vision LLMs.
