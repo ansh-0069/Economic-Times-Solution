@@ -1,6 +1,6 @@
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
-\usepackage[margin=1in]{geometry}
+\usepackage[margin=0.75in]{geometry}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{hyperref}
@@ -9,7 +9,7 @@
 \usepackage{tcolorbox}
 \usepackage{booktabs}
 \usepackage{caption}
-\usepackage{svg}
+\usepackage{microtype} % Better line breaking to save space
 
 % Custom Colors
 \definecolor{primary}{HTML}{1A237E}
@@ -17,42 +17,42 @@
 \definecolor{logic}{HTML}{00897B}
 \definecolor{action}{HTML}{F57C00}
 
-% Title Formatting
 \titleformat{\section}{\large\bfseries\color{primary}}{}{0em}{}[\titlerule]
 \titleformat{\subsection}{\normalsize\bfseries\color{highlight}}{}{0em}{}
+\titlespacing*{\section}{0pt}{1.5ex plus 1ex minus .2ex}{0.8ex plus .2ex}
+\titlespacing*{\subsection}{0pt}{1.2ex plus 1ex minus .2ex}{0.5ex plus .2ex}
 
 \title{\Huge \textbf{FinMentor AI \& ArthaScan} \\ \Large A Unified Architecture for Zero-Hallucination Financial Advice}
-\author{\textbf{Hackathon Submission: PS 9 --- AI Money Mentor}}
+\author{\textbf{Hackathon Submission: PS 9 - AI Money Mentor}}
 \date{\today}
 
 \begin{document}
 
 \maketitle
+\vspace{-4em} % Push content upwards
 
-\begin{tcolorbox}[colback=blue!5!white,colframe=blue!75!black,title=Executive Summary]
-The FinMentor AI ecosystem addresses the critical problem of automated financial advice: \textbf{Trust vs. Generative Noise}. Our architecture implements a "Zero-Hallucination" philosophy by strictly isolating all mathematical and business logic from the Large Language Models (LLMs). The LLMs are utilized solely for multi-channel data extraction and conversational translation, while 100\% of the financial truths are derived from deterministic Python engines.
+\begin{tcolorbox}[colback=blue!5!white,colframe=blue!75!black,title=Executive Summary,boxsep=1pt,left=2pt,right=2pt,top=2pt,bottom=2pt]
+\small The FinMentor AI ecosystem addresses the critical problem of automated financial advice: \textbf{Trust vs. Generative Noise}. Our architecture implements a "Zero-Hallucination" philosophy by strictly isolating all mathematical and business logic from the Large Language Models (LLMs). The LLMs are utilized solely for multi-channel data extraction and conversational translation, while 100\% of the financial truths are derived from deterministic Python engines.
 \end{tcolorbox}
 
 \section{System Architecture Overview}
 The system enables a dual-channel experience via a full \textbf{React Web Dashboard} and a frictionless \textbf{Telegram Bot Interface}. Both channels converge on a unified high-resolution extraction and analysis pipeline.
 
-\begin{figure}[h!]
-    \centering
-    \includesvg[width=\textwidth]{architecture.svg}
-    \caption{High-Level System Flow: Extraction, Calculation, and Decision Layers}
-\end{figure}
+\begin{center}
+    \vspace{-1em}
+    \includegraphics[width=0.95\textwidth]{architecture.png}
+    \captionof{figure}{\small High-Level System Flow: Extraction, Calculation, and Decision Layers}
+    \vspace{-1.5em}
+\end{center}
 
 \section{I. Multimodal Data Extraction Pipeline}
 Large Language Models often struggle with dense, tabular financial statements (CAMS/KFintech). Our pipeline bypasses traditional text-crawling vulnerabilities through a Vision-First approach:
 
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Image Rasterization:} Documents are converted to high-resolution (200 DPI) PNG images to avoid character mangling common in standard PDF libraries.
-    \item \textbf{Vision LLM Parsing:} We leverage Vision-capable LLMs to "read" the visual structure of the tables, extracting folio-level data into a strictly typed JSON structure.
-    \item \textbf{Recursive Self-Healing:} Every extraction is validated via Pydantic. If syntax errors occur, the system triggers a recursive LLM loop to repair the JSON before it reaches the analysis core.
-    \item \textbf{Regex Fallback:} A silent regex-based parser serves as a safety net during API timeouts or high latency, ensuring the user always sees their baseline data.
+\begin{itemize}[leftmargin=*,nosep]
+    \item \textbf{Image Rasterization/Vision:} Documents are converted to 200 DPI PNGs via `PyMuPDF` to avoid character mangling, then parsed by Vision LLMs into typed JSON.
+    \item \textbf{Self-Healing Loop:} Validated via Pydantic; if malformed, the system recursively prompts for syntax repairs before analysis.
+    \item \textbf{Regex Fallback:} A silent parser acts as a safety net during API timeouts, ensuring data stability.
 \end{itemize}
-
-\newpage
 
 \section{II. The Deterministic Financial Engine}
 In our architecture, the AI is "Math-Blind." Once the data is extracted, it enters a walled-off sandbox where only pure Python algorithms are permitted to operate.
@@ -71,6 +71,8 @@ The transition from "Math" to "Advice" is governed by a hardcoded heuristic tree
 
 \begin{table}[h!]
 \centering
+\small
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{ll}
 \toprule
 \textbf{Condition} & \textbf{System Directive} \\
@@ -82,20 +84,19 @@ Underperformance vs Peer & \textbf{REVIEW} (Watchlist placement) \\
 \bottomrule
 \end{tabular}
 \end{table}
+\vspace{-1ex}
 
 \section{IV. "Glass-Box" Presentation \& Intent Routing}
 The AI layer (Agent) serves as the presentation face. An \textbf{Intent Router} ensures that conversational queries are always grounded:
-\begin{itemize}
-    \item \textbf{Math Queries:} Requests for numbers bypass the LLM and pull directly from the Math Engine.
-    \item \textbf{Explanation Agent:} When asked *"Why?"*, the LLM is provided with the dry JSON math and a strict systemic command to translate those facts into fluid English/Hinglish without hallucinating new data.
+\begin{itemize}[nosep]
+    \item \textbf{Math Queries:} Pure numerical requests bypass the LLM and pull from the Math Engine.
+    \item \textbf{Explanation Agent:} The LLM translates deterministic JSON facts into English/Hinglish without hallucinating new data.
 \end{itemize}
 
 \section{Technology Stack}
-\begin{itemize}
+\begin{itemize}[nosep]
     \item \textbf{Core Engine:} Python 3.11+, pyxirr, NumPy, Pydantic.
-    \item \textbf{Backend:} FastAPI, Telegram Bot API.
-    \item \textbf{Frontend:} React 18, Recharts, Dark-mode Design System.
-    \item \textbf{AI Models:} Vision-capable Multi-modal LLMs.
+    \item \textbf{Backend/Frontend:} FastAPI, Telegram Bot API, React 18, Recharts.
 \end{itemize}
 
 \end{document}
