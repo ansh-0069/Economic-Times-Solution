@@ -12,7 +12,7 @@ FinMentor AI & ArthaScan solve this by converting static, messy PDFs into action
 ## 🔥 Key Features (Why this isn't just an LLM Wrapper)
 
 1. **Multi-Channel Access:** Full React web dashboard for deep dives, and a Telegram bot for instant, on-the-go analysis.
-2. **Multimodal "Vision-First" Extraction:** Standard PDF text crawlers break on complex tables. We rasterize PDFs to images and pass them to **Gemini 2.5 Flash / Claude Vision** with strict Pydantic validation. 
+2. **Multimodal "Vision-First" Extraction:** Standard PDF text crawlers break on complex tables. We rasterize PDFs to images and pass them to Vision LLMs with strict Pydantic validation.
 3. **Deterministic Mathematical Engine:** LLMs hallucinate numbers. We don't allow them to do math. A strict Python algorithms engine calculates the true **XIRR (via XNPV)**, 10-year Wealth Bleed, and exactly normalizes stock exposure to reveal hidden overlaps.
 4. **0-100 Portfolio Health Score:** A custom algorithmic gauge that deducts penalties for closet indexing and high fee drag.
 5. **"Glass-Box" Conversational Guard:** Users can freely chat to ask questions (e.g., *"Why is this fund bad?"*). An intent router prevents illegal financial advice and uses the LLM to explain the deterministic calculations clearly without hallucination.
@@ -23,7 +23,7 @@ FinMentor AI & ArthaScan solve this by converting static, messy PDFs into action
 
 ### Web Dashboard (FinMentor AI)
 1. **Upload** CAMS PDF (or use demo data).
-2. **AI Verdict screen** — Claude reads your portfolio and speaks findings probabilistically.
+2. **AI Verdict screen** — Vision LLMs read your portfolio and speak findings probabilistically.
 3. **Full Dashboard** — 4 tabs (X-Ray, FIRE Planner, Tax Wizard, Ask AI).
 
 ### Telegram Bot (ArthaScan)
@@ -38,10 +38,10 @@ FinMentor AI & ArthaScan solve this by converting static, messy PDFs into action
 
 | Layer | Web Ecosystem | Telegram Ecosystem |
 |-------|---------------|--------------------|
-| **LLM** | Claude (Anthropic API) | Gemini 2.5 Flash |
+| **LLM** | Vision LLMs | Vision LLMs (API-based for prototype) |
 | **Backend** | FastAPI + Python | Pure Python Bot |
 | **Frontend** | React 18 + Recharts | Telegram Bot API |
-| **Extraction**| pdfplumber + Claude Vision | PyMuPDF + Gemini |
+| **Extraction**| pdfplumber + Vision LLMs | PyMuPDF + Vision LLMs |
 | **Math Engine**| pyxirr, numpy | pyxirr, numpy |
 
 ---

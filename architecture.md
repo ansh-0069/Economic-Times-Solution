@@ -13,10 +13,10 @@ graph TD
 
     %% Extraction Pipeline (Multimodal)
     subgraph Data Extraction Pipeline
-        Web -->|PDF Text/Images| WebVision[Claude Vision + pdfplumber]
+        Web -->|PDF Text/Images| WebVision[Vision LLM + pdfplumber]
         TBot -->|Sends 200 DPI PNGs| ImageRasterizer[PyMuPDF Rasterizer]
         
-        ImageRasterizer --> Vision[Gemini 2.5 Vision LLM]
+        ImageRasterizer --> Vision[Vision LLM]
         Vision -->|Extracts raw JSON| Pydantic[Pydantic Validation]
         WebVision -->|Extracts JSON| Pydantic
         
@@ -69,7 +69,7 @@ graph TD
 ```
 
 ### Color Guide / Legends
-- **Purple / Cloud logic:** Non-deterministic generative LLMs (Claude/Gemini).
+- **Purple / Cloud logic:** Non-deterministic generative Vision LLMs.
 - **Teal / Local nodes:** Pure Python, 100% deterministic algorithms.
 - **Red / Fallbacks:** Silent fail-safe mechanisms avoiding API drops.
 
@@ -79,8 +79,8 @@ graph TD
 
 ### Phase 1: Multimodal Data Extraction
 Standard text-crawlers routinely mangle complex mutual fund statement tables. To fix this, we employ a multimodal approach:
-- **Telegram Bot:** Uses `PyMuPDF` to rasterize PDFs into images, feeding them to **Gemini 2.5 Flash Vision**. 
-- **Web App:** Uses **Claude Vision** combined with `pdfplumber`.
+- **Telegram Bot:** Uses `PyMuPDF` to rasterize PDFs into images, feeding them to **Vision LLMs**. 
+- **Web App:** Uses **Vision LLMs** combined with `pdfplumber`.
 Both pathways force the LLM outputs through strict **Pydantic Validation**. If syntax breaks from the LLM, a self-healing loop repairs the payload before proceeding.
 
 ### Phase 2: The "Zero-Hallucination" Sandbox
@@ -93,3 +93,8 @@ Aggregated financial truths trigger an absolute Rules Engine, rendering outputs 
 
 ### Phase 4: Conversational Chat Guard
 The "Ask AI" conversational layers are forced to route through Chat Guards referencing *only* the computed math dictionary, effectively translating concrete mathematical JSON truths into fluid English or Hinglish without hallucinations. 
+
+---
+
+## 🛡️ Model & Scalability Note
+For the purpose of this prototype, API-based Vision LLMs are used to demonstrate state-of-the-art accuracy. To mitigate vendor lock-in or privacy concerns in a production setting, the system is architected to be **model-agnostic**. Any vision-capable model (including local open-weights models like LLaVA) can be swapped in by updating the extraction adapter layer.

@@ -43,3 +43,8 @@ By simply uploading a PDF to our platform, our deterministic engine identifies t
 | Target User Base (1% adoption) | 14 Lakh people |
 | Average tax/fee saving identified per user | ₹1.5 Lakhs to ₹2.5 Lakhs over a decade |
 | **Total Wealth Saved for India at 1% adoption** | **₹21,000 Crore to ₹35,000 Crore** |
+
+---
+
+## 🛡️ Note on Methodology
+This impact model assumes the usage of **Vision LLMs** for document digitization as demonstrated in the prototype. While the current implementation uses cloud-based APIs, the system is designed to be model-agnostic. In production, this can be mitigated by using specialized on-premise vision models or enterprise-grade OCR to maintain data security while achieving the same mathematical outcomes.
